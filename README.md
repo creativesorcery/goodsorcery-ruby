@@ -77,8 +77,8 @@ Change settings inside `GoodSorcery.configure`: it recompiles the filters and re
 
 | Setting | Default | Notes |
 |---|---|---|
-| `api_key` | `ENV["GOODSORCERY_API_KEY"]`, then `Rails.application.credentials.dig(:goodsorcery, :api_key)` | Per-environment ingest key. Never logged in full. A missing key disables delivery with one warning. |
-| `endpoint` | `ENV["GOODSORCERY_ENDPOINT"]` or `https://errors.goodsorcery.dev` | Your self-hosted URL. `http://` is fine for localhost. |
+| `api_key` | `ENV["GOODSORCERY_API_KEY"]`, then `Rails.application.credentials.dig(:goodsorcery, :api_key)` | Per-environment ingest key. Never logged in full (`inspect` shows it masked). A missing key disables delivery with one warning. |
+| `endpoint` | `ENV["GOODSORCERY_ENDPOINT"]` or `https://errors.goodsorcery.dev` | Your self-hosted URL (`http://` or `https://`; credentials in the URL are refused). `http://` is fine for localhost. |
 | `environment` | `ENV["GOODSORCERY_ENV"]`, `Rails.env`, `RACK_ENV`, `APP_ENV`, else `"development"` | Used for gating only; the server takes the environment from the key. |
 | `disabled_environments` | `%w[development test]` | Environments that don't report. |
 | `enabled_environments` | `nil` | Allow-list; when set, only these report. |

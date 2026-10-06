@@ -15,7 +15,7 @@ module GoodSorcery
       max_retries open_timeout read_timeout active_job_queue
     ].freeze
 
-    attr_writer :api_key, :endpoint, :environment, :release, :logger, :root
+    attr_writer :api_key, :environment, :release, :logger, :root
     attr_accessor :disabled_environments, :enabled_environments, :filter_params,
                   :use_rails_filter_parameters, :extra_filters, :ignore_exceptions, :tags,
                   :user_method, :send_code_context, :breadcrumbs,
@@ -25,6 +25,7 @@ module GoodSorcery
                 :shutdown_timeout, :max_retries, :open_timeout, :read_timeout,
                 :max_breadcrumbs, :install_check, :before_send
 
+    endpoint_setting
     choice_setting :filter_mode, %i[mask remove]
     choice_setting :install_check, [:verify, :test_event, false]
     integer_setting :batch_size, 1..100
@@ -48,6 +49,11 @@ module GoodSorcery
 
     def endpoint
       (@endpoint || EnvFlag.present("GOODSORCERY_ENDPOINT") || Defaults::ENDPOINT).to_s.chomp("/")
+    end
+
+    # The endpoint without any user:password part, for logs and reports.
+    def endpoint_label
+      endpoint.sub(%r{(?<=://)[^/@]*@}, "")
     end
 
     def environment
@@ -109,6 +115,14 @@ module GoodSorcery
 
     def delivery_settings
       DELIVERY_SETTINGS.to_h { |name| [name, public_send(name)] }
+    end
+
+    # Never shows the API key (or endpoint credentials): consoles, error
+    # pages and loggers print objects with #inspect.
+    def inspect
+      delivery_name = delivery.is_a?(Symbol) ? delivery.inspect : delivery.class.name
+      "#<#{self.class.name} api_key=#{masked_api_key} endpoint=#{endpoint_label} " \
+        "environment=#{environment} delivery=#{delivery_name}>"
     end
 
     private
@@ -186,7 +200,7 @@ module GoodSorcery
       return value if !value.is_a?(Symbol) && value.respond_to?(:deliver)
 
       raise ArgumentError, "delivery must be one of #{Configuration::DELIVERIES.map(&:inspect).join(", ")} " \
-                           "or an object responding to #deliver (got #{value.inspect})"
+                           "or an object responding to #deliver (got a #{value.class})"
     end
   end
 end

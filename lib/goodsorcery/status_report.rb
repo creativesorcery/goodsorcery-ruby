@@ -13,7 +13,7 @@ module GoodSorcery
     end
 
     def print_settings
-      say("endpoint:    #{@config.endpoint}")
+      say("endpoint:    #{@config.endpoint_label}")
       say("environment: #{@config.environment} (#{enabled_label})")
       say("delivery:    #{delivery_label}")
       say("api key:     #{@config.masked_api_key}")

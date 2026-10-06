@@ -59,6 +59,11 @@ module GoodSorcery
       @batch_supported
     end
 
+    # Shows the host and the masked key only.
+    def inspect
+      "#<#{self.class.name} #{@uri.scheme}://#{@uri.host}:#{@uri.port} api_key=#{MaskedKey.new(@api_key)}>"
+    end
+
     private
 
     def post_chunk(chunk)

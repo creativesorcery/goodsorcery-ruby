@@ -74,9 +74,46 @@ class ConfigurationTest < Minitest::Test
     assert_equal "(not set)", GoodSorcery::MaskedKey.new(nil).to_s
   end
 
+  def test_inspect_and_pp_never_show_the_api_key
+    require "pp"
+    GoodSorcery.configure do |c|
+      c.api_key = "gs_live_9f2c41aa77d0e81a"
+      c.endpoint = "http://127.0.0.1:9"
+    end
+    client = GoodSorcery.client
+    client.delivery
+    client.transport
+    shown = [GoodSorcery.configuration.inspect, client.inspect, client.transport.inspect,
+             client.delivery.inspect, PP.pp(client, +"")]
+
+    shown.each { |text| refute_includes text, "9f2c41aa77d0" }
+    assert_includes GoodSorcery.configuration.inspect, "api_key=gs_live_…e81a"
+  end
+
+  def test_rejects_endpoints_that_are_not_http_urls_without_echoing_them
+    ["errors.example.com", "ftp://errors.example.com", "https://"].each do |value|
+      assert_raises(ArgumentError) { config.endpoint = value }
+    end
+    error = assert_raises(ArgumentError) { config.endpoint = "https://user:s3cr3t@errors.example.com" }
+    refute_includes error.message, "s3cr3t"
+    config.endpoint = "https://errors.example.com/tracker/"
+    assert_equal "https://errors.example.com/tracker", config.endpoint
+  end
+
+  def test_endpoint_label_hides_credentials_from_the_environment
+    with_env("GOODSORCERY_ENDPOINT" => "https://user:s3cr3t@errors.example.com") do
+      assert_equal "https://errors.example.com", config.endpoint_label
+      refute_includes config.inspect, "s3cr3t"
+    end
+  end
+
   def test_rejects_unknown_delivery
     error = assert_raises(ArgumentError) { config.delivery = :carrier_pigeon }
     assert_match(/delivery must be one of :async, :sync, :active_job, :test/, error.message)
+
+    holder = Struct.new(:api_key).new("gs_live_9f2c41aa77d0e81a")
+    error = assert_raises(ArgumentError) { config.delivery = holder }
+    refute_includes error.message, "9f2c41aa77d0"
   end
 
   def test_accepts_delivery_strings_and_custom_objects

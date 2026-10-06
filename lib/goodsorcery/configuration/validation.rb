@@ -26,6 +26,24 @@ module GoodSorcery
         end
       end
 
+      # The message never echoes the value: an endpoint URL can carry credentials.
+      def endpoint_setting
+        define_method(:endpoint=) do |value|
+          unless value.nil? || Validation.http_url?(value)
+            raise ArgumentError, "endpoint must be an http:// or https:// URL with a host and no user:password part"
+          end
+
+          @endpoint = value
+        end
+      end
+
+      def self.http_url?(value)
+        uri = URI(value.to_s)
+        %w[http https].include?(uri.scheme) && !uri.host.to_s.empty? && uri.userinfo.nil?
+      rescue URI::InvalidURIError
+        false
+      end
+
       def choice_setting(name, choices)
         define_method(:"#{name}=") do |value|
           normalized = value.is_a?(String) ? value.to_sym : value

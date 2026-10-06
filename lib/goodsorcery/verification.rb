@@ -17,16 +17,17 @@ module GoodSorcery
     def self.from_result(result, config)
       return success(result, config) if result.success?
       return new(false, "the server rejected API key #{config.masked_api_key} (HTTP 401)") if result.status == 401
-      return new(false, "#{config.endpoint} has no verify endpoint (HTTP 404)") if result.not_found?
+      return new(false, "#{config.endpoint_label} has no verify endpoint (HTTP 404)") if result.not_found?
       return new(false, "rate limited (HTTP 429); try again in #{result.retry_after} s") if result.rate_limited?
 
-      new(false, "could not reach #{config.endpoint} (#{result.description})")
+      new(false, "could not reach #{config.endpoint_label} (#{result.description})")
     end
 
     def self.success(result, config)
       environment = result.body["environment"]
       label = environment ? " for environment #{environment.to_s.inspect}" : ""
-      new(true, "API key #{config.masked_api_key} is valid#{label} at #{config.endpoint}", environment: environment)
+      message = "API key #{config.masked_api_key} is valid#{label} at #{config.endpoint_label}"
+      new(true, message, environment: environment)
     end
 
     def initialize(succeeded, message, environment: nil)
