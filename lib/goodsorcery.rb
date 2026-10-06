@@ -166,3 +166,8 @@ module GoodSorcery
     end
   end
 end
+
+if defined?(Sidekiq)
+  require_relative "goodsorcery/integrations/sidekiq"
+  GoodSorcery::Integrations::Sidekiq.install
+end

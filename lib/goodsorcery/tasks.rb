@@ -3,11 +3,13 @@
 require "rake"
 require_relative "../goodsorcery"
 require_relative "status_report"
+require_relative "integrations/rake"
 
 module GoodSorcery
   # Rake tasks: `require "goodsorcery/tasks"` in a Rakefile (Rails apps get
   # them automatically). They load the app's :environment task when there is
-  # one.
+  # one. Requiring this file also reports exceptions that end a rake run
+  # (GoodSorcery::Integrations::Rake).
   module Tasks
     extend Rake::DSL
 
@@ -40,3 +42,5 @@ module GoodSorcery
     end
   end
 end
+
+GoodSorcery::Integrations::Rake.install

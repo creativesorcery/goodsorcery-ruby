@@ -12,4 +12,5 @@ group :development do
   gem "actionpack", ">= 7.1"
   gem "activejob", ">= 7.1"
   gem "railties", ">= 7.1"
+  gem "sidekiq", ">= 7.0"
 end
