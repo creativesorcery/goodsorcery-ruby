@@ -41,6 +41,18 @@ class ActiveJobDeliveryTest < Minitest::Test
     refute_includes job[:args].first, secret
   end
 
+  def test_the_event_never_reaches_the_active_job_log
+    log = StringIO.new
+    ActiveJob::Base.logger = Logger.new(log)
+    GoodSorcery.notify(RuntimeError.new("card 4242 for mara@example.com"))
+    perform_enqueued_jobs
+
+    assert_includes log.string, "GoodSorcery::DeliveryJob"
+    refute_includes log.string, "mara@example.com"
+  ensure
+    ActiveJob::Base.logger = Logger.new(nil)
+  end
+
   def test_job_sends_the_event_synchronously
     GoodSorcery.notify(raise_and_rescue)
     perform_enqueued_jobs

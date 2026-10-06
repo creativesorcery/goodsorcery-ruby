@@ -4,10 +4,12 @@ module GoodSorcery
   # Sends one already-filtered event (a JSON string) synchronously. Retries
   # 429/5xx/network failures with ActiveJob's retry_on. Any exception raised
   # here is marked as reported first, so no integration reports it back to
-  # Good Sorcery (no recursion).
+  # Good Sorcery (no recursion). The argument is captured error data, so
+  # Active Job never writes it to the log.
   class DeliveryJob < ::ActiveJob::Base
     WAIT = ::ActiveJob.gem_version >= Gem::Version.new("7.1") ? :polynomially_longer : :exponentially_longer
 
+    self.log_arguments = false
     queue_as { GoodSorcery.configuration.active_job_queue }
     retry_on GoodSorcery::RetryableDeliveryError, wait: WAIT, attempts: 5
 
