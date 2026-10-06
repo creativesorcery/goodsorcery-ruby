@@ -177,6 +177,21 @@ class ConfigurationTest < Minitest::Test
 
     assert custom.shut_down
   end
+
+  def test_replaced_transport_closes_after_the_delivery_drains_and_outside_the_lock
+    GoodSorcery.configure do |c|
+      c.api_key = "gs_test_9f2c41aa77d0e81a"
+      c.endpoint = "http://127.0.0.1:9"
+    end
+    client = GoodSorcery.client
+    lock = client.instance_variable_get(:@lock)
+    steps = []
+    client.delivery.define_singleton_method(:shutdown) { |_timeout| steps << [:shutdown, lock.mon_locked?] }
+    client.transport.define_singleton_method(:close) { steps << [:close, lock.mon_locked?] }
+    GoodSorcery.configure { |c| c.api_key = "gs_test_0000000000000000" }
+
+    assert_equal [[:shutdown, false], [:close, false]], steps
+  end
 end
 
 class ReleaseDetectorTest < Minitest::Test

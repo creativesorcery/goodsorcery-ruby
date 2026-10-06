@@ -84,9 +84,12 @@ module GoodSorcery
       delivery.clear if delivery.is_a?(Delivery::Test)
     end
 
+    # The replaced delivery drains first, then its transport closes, both
+    # outside the lock so reporting threads never wait on the network.
     def reconfigure(rebuild_delivery:)
-      old_delivery = @lock.synchronize { reset_components(rebuild_delivery) }
+      old_delivery, old_transport = @lock.synchronize { reset_components(rebuild_delivery) }
       old_delivery&.shutdown(config.shutdown_timeout)
+      old_transport&.close
     end
 
     def delivery
@@ -162,17 +165,16 @@ module GoodSorcery
                     read_timeout: config.read_timeout, log: log)
     end
 
-    # Returns the delivery to shut down, if it is being replaced.
+    # Returns the delivery and transport to retire, if they are being replaced.
     def reset_components(rebuild_delivery)
       @pipeline = nil
       @ignore_list = nil
-      return nil unless rebuild_delivery
+      return [] unless rebuild_delivery
 
-      old_delivery = @delivery
-      @transport&.close
+      replaced = [@delivery, @transport]
       @delivery = nil
       @transport = nil
-      old_delivery
+      replaced
     end
   end
 end
