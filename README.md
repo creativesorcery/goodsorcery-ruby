@@ -6,6 +6,7 @@ The Ruby client for the [Good Sorcery](https://errors.goodsorcery.dev) error tra
 - Sensitive data is **filtered in-process** before anything leaves your app (the server scrubs again as a second layer).
 - The queue is bounded and **drops rather than blocks** when it is full. Rate limits (`429` + `Retry-After`) and server errors are retried with backoff.
 - It has no runtime dependencies (standard library only). It needs Ruby 3.2 or newer and works with or without Rails.
+- Rails, Rack/Sinatra, Active Job, Action Mailer, Action Cable, Sidekiq and Rake are covered out of the box (see [Integrations](#integrations)).
 
 ## Installation
 
@@ -18,6 +19,12 @@ plugin "goodsorcery"   # optional: checks your setup after `bundle install` in d
 ```sh
 bundle install
 export GOODSORCERY_API_KEY=gs_live_...   # or use Rails credentials, see below
+```
+
+In a Rails app, run the generator. It writes `config/initializers/goodsorcery.rb` (every option, commented out), adds `plugin "goodsorcery"` to the Gemfile, and with `--api-key` stores the key in your encrypted credentials. It never prints the key.
+
+```sh
+bin/rails generate goodsorcery:install --api-key=gs_live_...
 ```
 
 Outside Rails, `require "goodsorcery"` and call `GoodSorcery.configure` once at boot.
@@ -89,6 +96,8 @@ Change settings inside `GoodSorcery.configure`: it recompiles the filters and re
 | `send_code_context` | `true` | Source lines (±5) around the top 10 in-app frames. |
 | `breadcrumbs` / `max_breadcrumbs` | `true` / `40` | Up to 100. |
 | `report_handled_errors` | `true` | Rails integration: also report `Rails.error.handle` errors. |
+| `send_request_params` / `send_request_headers` / `send_session` | `true` | Leave those parts of the request out entirely. |
+| `send_job_arguments` | `true` | `false` never sends Active Job, mailer or Sidekiq arguments. |
 | `install_check` | `:verify` | `:verify`, `:test_event` or `false`; see [Install check](#install-check). |
 | `logger` | `Logger.new($stderr)` at `WARN` (`Rails.logger` in Rails) | The gem's own messages, prefixed `[goodsorcery]`. |
 | `delivery` | `:async` | See [Delivery](#delivery). |
@@ -138,7 +147,7 @@ Logs and the install check only ever show a masked key, such as `gs_live_…e81a
 
 ## Filtering
 
-Filtering applies at any depth to request params, headers, session, the URL query string, context, tags and breadcrumb data. The `user` section (`id`, `email`, `username`, `name`) is sent as given, because it identifies affected users; only set the fields you want sent.
+Filtering applies at any depth to request params, headers, session, the URL query string, job arguments, context, tags and breadcrumb data. The `user` section (`id`, `email`, `username`, `name`) is sent as given, because it identifies affected users; only set the fields you want sent.
 
 The defaults mirror Rails' generated `filter_parameters` plus the server's scrub list:
 
@@ -160,7 +169,69 @@ config.filter_params = [/password/i]                  # replace the defaults ent
 config.filter_mode = :remove                          # drop keys instead of masking them
 ```
 
-In Rails apps, `Rails.application.config.filter_parameters` is applied as well, with Rails' own matching rules, unless `use_rails_filter_parameters = false`.
+In Rails apps, `Rails.application.config.filter_parameters` is applied as well, with Rails' own matching rules (`ActiveSupport::ParameterFilter`), unless `use_rails_filter_parameters = false`. Values matched by those rules are always masked, even with `filter_mode = :remove`.
+
+Key filtering can't protect a secret passed as a bare positional job argument (`perform(user_id, "s3cr3t")`). Turn arguments off for such jobs, or everywhere with `config.send_job_arguments = false`:
+
+```ruby
+class ChargeCustomerJob < ApplicationJob
+  goodsorcery_arguments false            # this job and its subclasses
+end
+
+class LegacyWorker
+  include Sidekiq::Job
+  sidekiq_options goodsorcery_arguments: false
+end
+```
+
+## Integrations
+
+Each integration opens a **fresh scope** for one request, job or channel action, so context, user, tags and breadcrumbs never leak from one to the next. Request and job details are only read **when an error is reported**, so a request or job that succeeds pays almost nothing. Each exception object is reported once, however many integrations see it.
+
+| Where the error happened | `transaction` | What is sent |
+|---|---|---|
+| Controller / Rack request | `UsersController#update` | `request`: URL (query filtered), method, format, request id, remote IP, params (as Rails parsed them), headers, session (only if the request already loaded it); `context.controller`; the user |
+| Active Job (any adapter) | `ChargeCustomerJob` | `job`: `framework` (`active_job`), `class`, `id`, `provider_job_id`, `queue`, `priority`, `executions`, `enqueued_at`, `scheduled_at`, `arguments`; tag `queue` |
+| Action Mailer `deliver_later` | `UserMailer#welcome` | as Active Job, plus `mailer` and `action`; `arguments` holds the mailer method's `args` and `params` |
+| Sidekiq (jobs not wrapped by Active Job) | worker class | `job`: `framework` (`sidekiq`), `class`, `id` (jid), `queue`, `retry_count`, `enqueued_at`, `arguments`; tag `queue` |
+| Action Cable | `ChatChannel#speak` | `request`: the connection's URL, request id, remote IP and headers; params `{ "channel" => subscription params, "data" => action data }` |
+| Rake | `rake db:migrate` | `context.rake`: the failing task and its arguments |
+| `Rails.error.report` / `handle` | unchanged | `context.rails_error`: the reporter's `context:` plus `source` |
+
+Job arguments are serialised the way the job system sees them, without loading anything: records become their GlobalID (`"gid://shop/Customer/88123"`), hashes keep their keys (so filtering applies), symbols become strings, times ISO 8601, and any other object a `"#<ClassName>"` placeholder. `#inspect` is never called. Sizes and depth are capped like request params.
+
+### Rails
+
+Nothing to set up beyond the initializer. The Railtie:
+
+- uses `Rails.root`, `Rails.env`, `Rails.logger` and the `REVISION` file in `Rails.root` as defaults, and applies `filter_parameters`;
+- inserts `GoodSorcery::Rack::Middleware` right after `ActionDispatch::ShowExceptions`, so it sees exceptions before Rails renders the error page. Errors that a lower layer turned into a 5xx response (`env["action_dispatch.exception"]`) are reported too;
+- subscribes to `Rails.error`: unhandled errors are reported at level `error`, handled ones (`Rails.error.handle`, `Rails.error.report(handled: true)`) at their severity (`warning` by default). Set `report_handled_errors = false` to skip handled ones;
+- finds the user with the controller's `user_method` (default `current_user`, private methods too), else `Current.user`, and sends only `id`, `email`, `username` and `name`;
+- wraps Active Job's `perform_now` outside the job's own `rescue_from`/`retry_on`, so a job is reported once when it finally fails, not on every attempt it retries itself. `GoodSorcery::DeliveryJob` is never reported;
+- wraps Action Cable channel subscribe, unsubscribe and actions; errors your channel's `rescue_from` handles are not reported;
+- records breadcrumbs from `ActiveSupport::Notifications` inside requests, jobs and channel actions: `start_processing.action_controller`, `sql.active_record` (without `SCHEMA`, `CACHE` and `TRANSACTION` queries, SQL capped at 1,000 chars), `perform.active_job` and `deliver.action_mailer`. Turn them off with `config.breadcrumbs = false`;
+- loads the `goodsorcery:verify` and `goodsorcery:test` tasks and reports exceptions that end a rake task.
+
+### Rack and Sinatra
+
+```ruby
+# config.ru
+require "goodsorcery"
+GoodSorcery.configure { |config| config.api_key = ENV["GOODSORCERY_API_KEY"] }
+use GoodSorcery::Rack::Middleware
+run MyApp
+```
+
+The middleware reports exceptions that propagate (and re-raises them) and errors Sinatra turned into a 5xx (`env["sinatra.error"]`). Params are the query string plus a form body only if the app already parsed it: the middleware never reads the request body and never loads a session that wasn't loaded.
+
+### Sidekiq
+
+Hooked in automatically when Sidekiq is loaded before `goodsorcery` or in a Rails app. Otherwise call `GoodSorcery::Integrations::Sidekiq.install` after requiring both. A server middleware reports jobs that fail (on every attempt, as Sidekiq retries them) and an error handler catches anything raised outside it. Jobs enqueued through Active Job are left to the Active Job layer.
+
+### Rake
+
+Rails apps get this automatically; elsewhere `require "goodsorcery/tasks"` in your Rakefile. An exception that ends a rake run is reported with `transaction = "rake <tasks>"` (task arguments stay out of the name and go, filtered, to `context.rake`), and the queue is flushed, for up to `shutdown_timeout`, before rake exits.
 
 ## Install check
 
@@ -213,12 +284,13 @@ These are for integrations and advanced setups:
 - `config.extra_filters`: objects responding to `filter(hash) -> hash`, applied after the key filter to every filtered section. `ActiveSupport::ParameterFilter` fits as is; the Rails integration adds one for `filter_parameters`.
 - `config.request_extractor`: an object responding to `extract(rack_env) -> Hash` (keys `url`, `method`, `format`, `request_id`, `remote_ip`, `params`, `headers`, `session`). Integrations keep the env in `GoodSorcery.scope.request_env`, so the request is only read when an error is reported. Alternatively they can set `GoodSorcery.scope.request` to a ready hash.
 - `GoodSorcery.scope`, `GoodSorcery.with_scope` and `GoodSorcery.clear_scope` manage the per-thread scope.
+- `scope.enricher`: an object responding to `enrich(scope)`, run once, just before the first event in that scope is built. Integrations use it to fill in `scope.request`, `scope.job`, `scope.user` and `scope.transaction` only when something is reported. `scope.job` takes the `job` section's fields (see [Integrations](#integrations)).
 
 ## Development
 
 ```sh
 bin/setup              # bundle install, then the whole test suite
-bundle exec rake test  # core tests, then ActiveJob tests in a separate process
+bundle exec rake test  # core, then Rack/Sidekiq/Rake, then Rails tests, each in its own process
 bundle exec rubocop
 bin/console
 ```
