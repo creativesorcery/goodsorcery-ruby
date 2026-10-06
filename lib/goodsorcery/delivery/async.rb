@@ -45,9 +45,10 @@ module GoodSorcery
         return true unless thread&.alive? && @pid == Process.pid
 
         drained = queue.wait_until_idle(timeout)
+        undelivered = queue.size
         queue.close
         thread.join(drained ? 1 : 0.1)
-        log_undelivered(queue) unless drained
+        log_undelivered(undelivered) unless drained
         drained
       end
 
@@ -99,8 +100,9 @@ module GoodSorcery
         EventQueue.new(max_size: @settings[:max_queue_size], batch_size: @settings[:batch_size])
       end
 
-      def log_undelivered(queue)
-        @log.warn("shutdown timed out with #{queue.size} event(s) undelivered")
+      # Counted before the queue closes: once closed, the worker drops what is left.
+      def log_undelivered(count)
+        @log.warn("shutdown timed out with #{count} event(s) undelivered")
       end
     end
 

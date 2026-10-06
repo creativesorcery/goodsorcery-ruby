@@ -140,6 +140,16 @@ class AsyncDeliveryTest < Minitest::Test
     refute_predicate async, :running?
   end
 
+  def test_shutdown_timeout_logs_how_many_events_were_left_undelivered
+    transport = FakeTransport.new(:retryable, :retryable, :retryable, :retryable, :retryable, :retryable)
+    async = delivery(transport, batch_size: 2, flush_interval: 0.01, sleeper: nil)
+    6.times { async.deliver(event) }
+    assert(wait_until { transport.attempts == 1 })
+
+    refute async.shutdown(0.1)
+    assert_includes log_output, "shutdown timed out with 6 event(s) undelivered"
+  end
+
   def test_restarts_after_shutdown
     transport = FakeTransport.new
     async = delivery(transport, flush_interval: 0.01)
