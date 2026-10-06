@@ -1,0 +1,59 @@
+AllCops:
+  TargetRubyVersion: 3.2
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - "vendor/**/*"
+    - "tmp/**/*"
+
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+Style/StringLiteralsInInterpolation:
+  EnforcedStyle: double_quotes
+
+Style/Documentation:
+  Exclude:
+    - "test/**/*"
+
+# House rules: methods are short (hard limit 20 lines) and conditionals nest
+# at most one level deep.
+Metrics/MethodLength:
+  Max: 20
+  CountAsOne: []
+
+Metrics/BlockNesting:
+  Max: 1
+
+Metrics/ClassLength:
+  Max: 150
+  Exclude:
+    - "test/**/*"
+
+# Tests assert many things in a row and keep small helper classes next to
+# the tests that use them.
+Metrics/AbcSize:
+  Exclude:
+    - "test/**/*"
+
+Style/OneClassPerFile:
+  Exclude:
+    - "test/**/*"
+
+Metrics/BlockLength:
+  Exclude:
+    - "test/**/*"
+    - "*.gemspec"
+    - "lib/goodsorcery/tasks.rb"
+
+Gemspec/DevelopmentDependencies:
+  EnforcedStyle: Gemfile
+
+# Delivery objects return true/false from deliver/flush/shutdown by contract;
+# those are commands, not predicates.
+Naming/PredicateMethod:
+  Enabled: false
+
+# Keyword arguments name themselves (GoodSorcery.notify has six by design).
+Metrics/ParameterLists:
+  CountKeywordArgs: false

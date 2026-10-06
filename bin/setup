@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Installs the gem's development dependencies, then runs the test suite.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+bundle install
+bundle exec rake test
