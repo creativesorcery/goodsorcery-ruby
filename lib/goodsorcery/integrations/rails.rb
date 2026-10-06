@@ -5,6 +5,7 @@ require_relative "rails/controller_action"
 require_relative "rails/user_lookup"
 require_relative "rails/controller_enricher"
 require_relative "rails/error_subscriber"
+require_relative "rails/sql_statement"
 require_relative "rails/notification_breadcrumbs"
 
 module GoodSorcery

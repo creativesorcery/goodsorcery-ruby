@@ -87,7 +87,7 @@ class ControllerIntegrationTest < Minitest::Test
     assert_equal(["POST /orders", "OrdersController#create as HTML"], crumbs.first(2).map { |crumb| crumb["message"] })
     sql = crumbs.find { |crumb| crumb["category"] == "sql" }
     assert_match(/\AOrder Load \(\d+(\.\d+)?ms\)\z/, sql["message"])
-    assert_equal({ "sql" => "SELECT * FROM orders" }, sql["data"])
+    assert_equal({ "sql" => "SELECT * FROM orders WHERE email = ? LIMIT ?" }, sql["data"])
     assert_equal(1, crumbs.count { |crumb| crumb["category"] == "sql" })
   end
 

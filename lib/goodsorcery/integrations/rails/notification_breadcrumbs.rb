@@ -11,17 +11,20 @@ module GoodSorcery
           start_processing.action_controller sql.active_record perform.active_job deliver.action_mailer
         ].freeze
         IGNORED_SQL_NAMES = %w[SCHEMA CACHE TRANSACTION].freeze
-        MAX_SQL_LENGTH = 1_000
 
         def self.subscribe
           return if @subscribed
 
           @subscribed = true
           recorder = new
-          EVENTS.each { |name| ::ActiveSupport::Notifications.subscribe(name, recorder) }
+          EVENTS.each do |event_name|
+            ::ActiveSupport::Notifications.subscribe(event_name) do |name, started, finished, _id, payload|
+              recorder.record_notification(name, started, finished, payload)
+            end
+          end
         end
 
-        def call(name, started, finished, _id, payload)
+        def record_notification(name, started, finished, payload)
           return unless Scope.unit_of_work && GoodSorcery.client.collecting_breadcrumbs?
 
           record(name, payload, duration_ms(started, finished))
@@ -49,12 +52,9 @@ module GoodSorcery
         def sql(payload, duration)
           return if payload[:cached] || IGNORED_SQL_NAMES.include?(payload[:name])
 
+          statement = SqlStatement.new(payload[:sql]).obfuscated
           GoodSorcery.add_breadcrumb("#{payload[:name] || "SQL"} (#{duration}ms)", category: "sql",
-                                                                                   data: { "sql" => sql_text(payload) })
-        end
-
-        def sql_text(payload)
-          Text.limit(payload[:sql].to_s, MAX_SQL_LENGTH)
+                                                                                   data: { "sql" => statement })
         end
 
         def job(payload)

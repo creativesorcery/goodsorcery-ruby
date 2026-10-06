@@ -210,7 +210,7 @@ Nothing to set up beyond the initializer. The Railtie:
 - finds the user with the controller's `user_method` (default `current_user`, private methods too), else `Current.user`, and sends only `id`, `email`, `username` and `name`;
 - wraps Active Job's `perform_now` outside the job's own `rescue_from`/`retry_on`, so a job is reported once when it finally fails, not on every attempt it retries itself. `GoodSorcery::DeliveryJob` is never reported;
 - wraps Action Cable channel subscribe, unsubscribe and actions; errors your channel's `rescue_from` handles are not reported;
-- records breadcrumbs from `ActiveSupport::Notifications` inside requests, jobs and channel actions: `start_processing.action_controller`, `sql.active_record` (without `SCHEMA`, `CACHE` and `TRANSACTION` queries, SQL capped at 1,000 chars), `perform.active_job` and `deliver.action_mailer`. Turn them off with `config.breadcrumbs = false`;
+- records breadcrumbs from `ActiveSupport::Notifications` inside requests, jobs and channel actions: `start_processing.action_controller`, `sql.active_record` (without `SCHEMA`, `CACHE` and `TRANSACTION` queries; SQL capped at 1,000 chars, with quoted strings and numbers replaced by `?` so inlined values never leave the app), `perform.active_job` and `deliver.action_mailer`. Turn them off with `config.breadcrumbs = false`;
 - loads the `goodsorcery:verify` and `goodsorcery:test` tasks and reports exceptions that end a rake task.
 
 ### Rack and Sinatra

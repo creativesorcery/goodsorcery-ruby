@@ -53,7 +53,8 @@ ActiveJob::Base.logger = Logger.new(nil)
 class OrdersController < ActionController::Base
   def create
     GoodSorcery.context(order_ref: "A-1")
-    ActiveSupport::Notifications.instrument("sql.active_record", sql: "SELECT * FROM orders", name: "Order Load")
+    sql = "SELECT * FROM orders WHERE email = 'm@x.dev' LIMIT 1"
+    ActiveSupport::Notifications.instrument("sql.active_record", sql: sql, name: "Order Load")
     ActiveSupport::Notifications.instrument("sql.active_record", sql: "PRAGMA table_info", name: "SCHEMA")
     session[:cart_id] = 5
     session[:auth_token] = "t0k"
