@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "test_helper"
-require "active_job"
+require_relative "support/rails_app"
 
 ActiveJob::Base.queue_adapter = :test
 ActiveJob::Base.logger = Logger.new(nil)

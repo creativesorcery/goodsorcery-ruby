@@ -167,6 +167,8 @@ module GoodSorcery
   end
 end
 
+require_relative "goodsorcery/railtie" if defined?(Rails::Railtie)
+
 if defined?(Sidekiq)
   require_relative "goodsorcery/integrations/sidekiq"
   GoodSorcery::Integrations::Sidekiq.install
