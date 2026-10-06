@@ -108,6 +108,21 @@ class AsyncDeliveryTest < Minitest::Test
     assert_equal ["kept"], transport.delivered_ids
   end
 
+  def test_a_429_from_the_server_pauses_for_retry_after_then_resends_the_batch
+    server = FakeServer.new
+    server.handler = rate_limited_once
+    transport = real_transport(server)
+    delivery(transport, flush_interval: 0.01).deliver(event("kept"))
+
+    assert @delivery.flush(2)
+    assert_equal [1], @sleeper.pauses
+    sent_ids = server.requests.map { |request| request.json["events"].map { |sent| sent["event_id"] } }
+    assert_equal [["kept"], ["kept"]], sent_ids
+  ensure
+    transport&.close
+    server&.stop
+  end
+
   def test_rejected_batches_are_not_retried
     transport = FakeTransport.new(:rejected)
     async = delivery(transport, flush_interval: 0.01)
@@ -198,6 +213,19 @@ class AsyncDeliveryTest < Minitest::Test
   end
 
   private
+
+  def rate_limited_once
+    calls = 0
+    lambda do |request|
+      calls += 1
+      calls == 1 ? [429, { "Retry-After" => "1" }, '{"error":"rate_limited"}'] : FakeServer.accept(request)
+    end
+  end
+
+  def real_transport(server)
+    GoodSorcery::Transport.new(endpoint: server.endpoint, api_key: "gs_test_9f2c41aa77d0e81a",
+                               open_timeout: 1, read_timeout: 1, log: captured_log)
+  end
 
   def in_forked_child
     reader, writer = IO.pipe
