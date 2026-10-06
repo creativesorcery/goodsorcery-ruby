@@ -60,7 +60,7 @@ GoodSorcery.configure do |config|
   # config.enabled = false                               # hard override; also ENV["GOODSORCERY_ENABLED"]=0/1
 
   # Filtering. Strings and symbols match a whole key (case-insensitive, "-" and "_" equivalent);
-  # regexps match any part of a key. Sane defaults; add with +=, remove with -=, replace with =.
+  # regexps match any part of a key (also with "-" read as "_"). Sane defaults; add with +=, remove with -=, replace with =.
   config.filter_params += %i[card_token ssn]
   config.filter_params += [/_key\z/i, /secret_key/i]
   # config.filter_params = [/password/i]               # replace the defaults entirely

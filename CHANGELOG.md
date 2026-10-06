@@ -13,3 +13,5 @@
 - A `job` event section with filtered job arguments; `send_job_arguments`, `goodsorcery_arguments false` and `sidekiq_options goodsorcery_arguments: false`.
 - `send_request_params`, `send_request_headers` and `send_session` switches.
 - `bin/rails generate goodsorcery:install [--api-key=KEY]`.
+- Hardening from review: `inspect` never shows the API key; `config.endpoint` must be an http(s) URL without credentials; Rails `filter_parameters` also filter the URL query string; filter regexps also match keys with `-` read as `_` (headers); SQL breadcrumbs have literal values replaced by `?`; OpenStruct and Set values are filtered by key.
+- Robustness from review: a forked child opens its own keep-alive connection; a batch refused with `413` is split in halves; reports raised while a report is being built are dropped instead of recursing; `:active_job` falls back to the background thread when Rails refuses the enqueue; only the 250 sent backtrace frames are parsed; reconfiguring retires the old transport outside the client lock.
