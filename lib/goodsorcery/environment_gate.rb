@@ -8,8 +8,15 @@ module GoodSorcery
       @config = config
     end
 
+    # Checked on every report and breadcrumb, so it builds no strings.
     def enabled?
-      decision.first
+      explicit = @config.enabled
+      return explicit unless explicit.nil?
+
+      allow_list = @config.enabled_environments
+      return listed?(allow_list) if allow_list
+
+      !listed?(@config.disabled_environments)
     end
 
     def reason
@@ -44,6 +51,11 @@ module GoodSorcery
 
     def names(list)
       Array(list).map(&:to_s)
+    end
+
+    def listed?(list)
+      name = environment
+      Array(list).any? { |entry| entry.to_s == name }
     end
   end
 end

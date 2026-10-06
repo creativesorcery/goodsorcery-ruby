@@ -33,6 +33,26 @@ module GoodSorcery
         time.utc.iso8601(3)
       end
 
+      # A job timestamp as ISO 8601: a Time (or Date), epoch seconds, epoch
+      # milliseconds (Sidekiq 8) or an already formatted string.
+      def iso_time(value)
+        case value
+        when nil then nil
+        when String then Text.limit(value, 64)
+        when Time then timestamp(value)
+        when Numeric then timestamp(Time.at(epoch_seconds(value)))
+        else formatted_time(value)
+        end
+      end
+
+      def epoch_seconds(value)
+        value > 100_000_000_000 ? value / 1000.0 : value
+      end
+
+      def formatted_time(value)
+        value.respond_to?(:iso8601) ? Text.limit(value.iso8601, 64) : nil
+      end
+
       def text(value, max)
         value.nil? ? nil : Text.limit(value, max)
       end

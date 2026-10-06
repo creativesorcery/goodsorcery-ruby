@@ -34,7 +34,9 @@ module GoodSorcery
 
     # Builds, filters and runs before_send, without any gating.
     def prepare_event(exception, options = {})
-      pipeline.prepare(exception, options, Scope.current)
+      scope = Scope.current
+      enrich(scope)
+      pipeline.prepare(exception, options, scope)
     end
 
     def reporting?
@@ -60,6 +62,12 @@ module GoodSorcery
     rescue StandardError => e
       log.warn_every(:breadcrumb_error, 60, "could not record a breadcrumb (#{e.class})")
       nil
+    end
+
+    # Whether breadcrumbs are recorded at all, so integrations can skip
+    # building them.
+    def collecting_breadcrumbs?
+      config.breadcrumbs && config.max_breadcrumbs.positive? && (test_delivery? || @gate.enabled?)
     end
 
     def flush(timeout = 5)
@@ -111,16 +119,18 @@ module GoodSorcery
       @ignore_list || @lock.synchronize { @ignore_list ||= IgnoreList.new(config.ignore_exceptions) }
     end
 
+    def enrich(scope)
+      scope.enrich
+    rescue StandardError => e
+      log.warn_every(:enrich_error, 60, "could not read request or job details (#{e.class})")
+    end
+
     def skip?(exception)
       ReportedMark.reported?(exception) || exception.is_a?(RetryableDeliveryError) || ignore_list.ignore?(exception)
     end
 
     def test_delivery?
       config.delivery == :test
-    end
-
-    def collecting_breadcrumbs?
-      config.breadcrumbs && config.max_breadcrumbs.positive? && (test_delivery? || @gate.enabled?)
     end
 
     def credentials_present?

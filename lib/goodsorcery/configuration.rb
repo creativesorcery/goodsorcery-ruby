@@ -15,11 +15,12 @@ module GoodSorcery
       max_retries open_timeout read_timeout active_job_queue
     ].freeze
 
-    attr_writer :api_key, :endpoint, :environment, :release
+    attr_writer :api_key, :endpoint, :environment, :release, :logger, :root
     attr_accessor :disabled_environments, :enabled_environments, :filter_params,
                   :use_rails_filter_parameters, :extra_filters, :ignore_exceptions, :tags,
-                  :user_method, :send_code_context, :breadcrumbs, :logger, :root,
-                  :report_handled_errors, :active_job_queue, :request_extractor
+                  :user_method, :send_code_context, :breadcrumbs,
+                  :report_handled_errors, :active_job_queue, :request_extractor,
+                  :send_request_params, :send_request_headers, :send_session, :send_job_arguments
     attr_reader :delivery, :filter_mode, :batch_size, :flush_interval, :max_queue_size,
                 :shutdown_timeout, :max_retries, :open_timeout, :read_timeout,
                 :max_breadcrumbs, :install_check, :before_send
@@ -59,6 +60,23 @@ module GoodSorcery
 
       @detected_release = ReleaseDetector.new(root).release unless defined?(@detected_release)
       @detected_release
+    end
+
+    # Rails.root in Rails apps, else the working directory.
+    def root
+      (@root || rails_root || Dir.pwd).to_s
+    end
+
+    # Rails.logger in Rails apps, else WARN and above to $stderr.
+    def logger
+      @logger || rails_logger || (@default_logger ||= ::Logger.new($stderr, level: ::Logger::WARN))
+    end
+
+    # The key filter's companions: Rails' filter_parameters (unless turned
+    # off), then config.extra_filters.
+    def event_filters
+      rails = use_rails_filter_parameters ? RailsFilterParameters.build : nil
+      [rails, *extra_filters].compact
     end
 
     def enabled
@@ -125,8 +143,26 @@ module GoodSorcery
       @max_breadcrumbs = 40
       @install_check = :verify
       @report_handled_errors = true
-      @root = Dir.pwd
-      @logger = ::Logger.new($stderr, level: ::Logger::WARN)
+      assign_capture_defaults
+    end
+
+    def assign_capture_defaults
+      @send_request_params = true
+      @send_request_headers = true
+      @send_session = true
+      @send_job_arguments = true
+    end
+
+    def rails_app?
+      defined?(::Rails) && ::Rails.respond_to?(:application) && ::Rails.application
+    end
+
+    def rails_root
+      ::Rails.root if rails_app? && ::Rails.respond_to?(:root)
+    end
+
+    def rails_logger
+      ::Rails.logger if defined?(::Rails) && ::Rails.respond_to?(:logger)
     end
 
     def rails_env
@@ -134,7 +170,7 @@ module GoodSorcery
     end
 
     def rails_credentials_api_key
-      return unless defined?(::Rails) && ::Rails.respond_to?(:application) && ::Rails.application
+      return unless rails_app?
 
       ::Rails.application.credentials.dig(:goodsorcery, :api_key)
     rescue StandardError

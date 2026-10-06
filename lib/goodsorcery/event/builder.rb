@@ -48,6 +48,7 @@ module GoodSorcery
         {
           "transaction" => Fields.text(options[:transaction] || scope.transaction, MAX_TRANSACTION_LENGTH),
           "request" => @request_section.build(scope),
+          "job" => JobSection.build(scope.job, @sanitizer),
           "user" => UserSection.build(options[:user] || scope.user),
           "breadcrumbs" => breadcrumbs(scope),
           "tags" => presence(TagSet.merge(@config.tags, scope.tags, options[:tags]))

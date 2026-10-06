@@ -23,6 +23,8 @@ require_relative "goodsorcery/text"
 require_relative "goodsorcery/sanitizer"
 require_relative "goodsorcery/key_filter"
 require_relative "goodsorcery/event_filter"
+require_relative "goodsorcery/rails_filter_parameters"
+require_relative "goodsorcery/job_arguments"
 require_relative "goodsorcery/scope"
 require_relative "goodsorcery/backtrace/parser"
 require_relative "goodsorcery/backtrace/paths"
@@ -35,6 +37,7 @@ require_relative "goodsorcery/event/runtime_context"
 require_relative "goodsorcery/event/user_section"
 require_relative "goodsorcery/event/tag_set"
 require_relative "goodsorcery/event/request_section"
+require_relative "goodsorcery/event/job_section"
 require_relative "goodsorcery/event/breadcrumb"
 require_relative "goodsorcery/event/builder"
 require_relative "goodsorcery/event_pipeline"
@@ -103,7 +106,7 @@ module GoodSorcery
     # the previous one.
     def with_scope
       previous = Thread.current[Scope::STORAGE_KEY]
-      Scope.current = Scope.new
+      Scope.current = Scope.new(unit_of_work: true)
       yield Scope.current
     ensure
       Scope.current = previous
