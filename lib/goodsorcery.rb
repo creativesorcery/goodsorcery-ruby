@@ -50,6 +50,7 @@ require_relative "goodsorcery/delivery"
 require_relative "goodsorcery/verification"
 require_relative "goodsorcery/test_event"
 require_relative "goodsorcery/client"
+require_relative "goodsorcery/rack/middleware"
 
 # Reports exceptions to a Good Sorcery error tracker. See README.md.
 module GoodSorcery

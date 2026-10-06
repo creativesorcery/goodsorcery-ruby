@@ -9,7 +9,14 @@ namespace :test do
     t.warning = false
   end
 
-  # Framework tests load ActiveJob/Rails, so they run in their own process.
+  # Rack, Sidekiq and Rake integrations, without Rails.
+  Rake::TestTask.new(:integrations) do |t|
+    t.libs << "test" << "lib"
+    t.test_files = FileList["test/integrations/**/*_test.rb"]
+    t.warning = false
+  end
+
+  # Framework tests boot a Rails app, so they run in their own process.
   Rake::TestTask.new(:rails) do |t|
     t.libs << "test" << "lib"
     t.test_files = FileList["test/rails/**/*_test.rb"]
@@ -17,7 +24,7 @@ namespace :test do
   end
 end
 
-desc "Run the core and framework test suites"
-task test: %w[test:core test:rails]
+desc "Run the core, integration and Rails test suites"
+task test: %w[test:core test:integrations test:rails]
 
 task default: :test
