@@ -1,0 +1,148 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+class KeyFilterTest < Minitest::Test
+  FILTERED = GoodSorcery::KeyFilter::FILTERED
+
+  def filter(patterns, mode: :mask)
+    GoodSorcery::KeyFilter.new(patterns, mode: mode)
+  end
+
+  def test_regexp_matches_any_part_of_a_key
+    key_filter = filter([/_key/i])
+
+    assert key_filter.filter_key?("api_key")
+    assert key_filter.filter_key?("SECRET_KEY_BASE")
+    refute key_filter.filter_key?("keyboard")
+  end
+
+  def test_string_matches_whole_key_case_insensitively_with_dash_and_underscore_equal
+    key_filter = filter(["secret_key"])
+
+    assert key_filter.filter_key?("secret_key")
+    assert key_filter.filter_key?("Secret-Key")
+    assert key_filter.filter_key?(:SECRET_KEY)
+    refute key_filter.filter_key?("my_secret_key")
+    refute key_filter.filter_key?("secret")
+  end
+
+  def test_symbols_match_whole_keys
+    key_filter = filter(%i[card_token ssn])
+
+    assert key_filter.filter_key?("card_token")
+    refute key_filter.filter_key?("card_token_id")
+  end
+
+  def test_masks_values_at_any_depth
+    result = filter(GoodSorcery::Defaults::FILTER_PARAMS).filter(
+      "user" => { "name" => "Mara", "password" => "hunter2", "emails" => ["a@b.c"] },
+      "items" => [{ "api_key" => "k", "sku" => 1 }],
+      "Authorization" => "Bearer x"
+    )
+
+    assert_equal({ "name" => "Mara", "password" => FILTERED, "emails" => FILTERED }, result["user"])
+    assert_equal [{ "api_key" => FILTERED, "sku" => 1 }], result["items"]
+    assert_equal FILTERED, result["Authorization"]
+  end
+
+  def test_remove_mode_drops_keys
+    result = filter([/token/i], mode: :remove).filter("token" => "t", "keep" => { "csrf_token" => "c", "a" => 1 })
+
+    assert_equal({ "keep" => { "a" => 1 } }, result)
+  end
+
+  def test_masks_a_whole_nested_value
+    assert_equal({ "secret" => FILTERED }, filter([/secret/i]).filter("secret" => { "a" => [1, 2] }))
+  end
+
+  def test_does_not_mutate_the_input
+    input = { "password" => "x", "nested" => { "token" => "y" } }
+    filter([/password/, /token/]).filter(input)
+
+    assert_equal({ "password" => "x", "nested" => { "token" => "y" } }, input)
+  end
+
+  def test_caps_depth
+    deep = { "a" => nil }
+    cursor = deep
+    30.times do
+      cursor["a"] = { "a" => nil }
+      cursor = cursor["a"]
+    end
+
+    assert_includes filter([]).filter(deep).to_s, "[truncated]"
+  end
+
+  def test_filters_url_query_strings
+    key_filter = filter(GoodSorcery::Defaults::FILTER_PARAMS)
+
+    assert_equal "https://x.dev/cb?token=[FILTERED]&page=2",
+                 key_filter.filter_url("https://x.dev/cb?token=abc&page=2")
+    assert_equal "/s?user%5Bpassword%5D=[FILTERED]&q=1#top", key_filter.filter_url("/s?user%5Bpassword%5D=p&q=1#top")
+    assert_equal "https://x.dev/plain", key_filter.filter_url("https://x.dev/plain")
+  end
+
+  def test_removes_url_query_parameters_in_remove_mode
+    assert_equal "/cb?page=2", filter([/token/], mode: :remove).filter_url("/cb?token=abc&page=2")
+  end
+
+  def test_default_list_is_extendable_and_replaceable
+    config = GoodSorcery::Configuration.new
+    config.filter_params += %i[card_token]
+    config.filter_params += [/_key\z/i, /secret_key/i]
+    extended = filter(config.filter_params)
+
+    assert extended.filter_key?("card_token")
+    assert extended.filter_key?("password")
+
+    config.filter_params = [/password/i]
+    replaced = filter(config.filter_params)
+
+    refute replaced.filter_key?("token")
+    assert replaced.filter_key?("password_confirmation")
+  end
+end
+
+class EventFilterTest < Minitest::Test
+  UpcaseFilter = Struct.new(:key) do
+    def filter(hash)
+      hash.to_h { |name, value| [name, name == key ? "[RAILS]" : value] }
+    end
+  end
+
+  def event
+    {
+      "request" => {
+        "url" => "https://x.dev/?token=abc",
+        "params" => { "password" => "p", "q" => "shoes" },
+        "headers" => { "Cookie" => "c", "Accept" => "text/html" },
+        "session" => { "session_id" => "s", "cart_id" => 1 }
+      },
+      "user" => { "email" => "mara@example.com" },
+      "context" => { "secret" => "x" },
+      "tags" => { "api_key" => "k", "region" => "eu" },
+      "breadcrumbs" => [{ "message" => "m", "data" => { "otp" => "123" } }]
+    }
+  end
+
+  def test_filters_every_free_form_section_but_not_the_user
+    filtered = GoodSorcery::EventFilter.new(GoodSorcery::KeyFilter.new(GoodSorcery::Defaults::FILTER_PARAMS))
+                                       .filter_event(event)
+
+    assert_equal "https://x.dev/?token=[FILTERED]", filtered["request"]["url"]
+    assert_equal({ "password" => "[FILTERED]", "q" => "shoes" }, filtered["request"]["params"])
+    assert_equal "[FILTERED]", filtered["request"]["headers"]["Cookie"]
+    assert_equal "[FILTERED]", filtered["request"]["session"]["session_id"]
+    assert_equal "[FILTERED]", filtered["context"]["secret"]
+    assert_equal({ "api_key" => "[FILTERED]", "region" => "eu" }, filtered["tags"])
+    assert_equal "[FILTERED]", filtered["breadcrumbs"][0]["data"]["otp"]
+    assert_equal "mara@example.com", filtered["user"]["email"]
+  end
+
+  def test_applies_extra_filters_after_key_filter
+    event_filter = GoodSorcery::EventFilter.new(GoodSorcery::KeyFilter.new([]), [UpcaseFilter.new("q")])
+
+    assert_equal "[RAILS]", event_filter.filter_event(event)["request"]["params"]["q"]
+  end
+end
