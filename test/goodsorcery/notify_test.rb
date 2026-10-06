@@ -124,6 +124,31 @@ class NotifyTest < Minitest::Test
     refute_includes log_output, "hunter2"
   end
 
+  def test_reports_raised_while_reporting_are_dropped_instead_of_recursing
+    reporting_hook = ->(event) { event.tap { GoodSorcery.notify("from before_send") } }
+    use_test_delivery { |config| config.before_send = reporting_hook }
+
+    assert GoodSorcery.notify(raise_and_rescue)
+    assert_equal 1, GoodSorcery.test_events.size
+    assert GoodSorcery.notify(raise_and_rescue), "the guard is released after each report"
+  end
+
+  def test_a_logger_that_reports_errors_does_not_recurse
+    reporting_logger = Class.new(Logger) do
+      def error(message = nil)
+        GoodSorcery.notify(message.to_s)
+        super
+      end
+    end
+    use_test_delivery do |config|
+      config.logger = reporting_logger.new(@log_output)
+      config.extra_filters = [Object.new]
+    end
+
+    assert_nil GoodSorcery.notify(raise_and_rescue, context: { a: 1 })
+    assert_includes log_output, "notify failed with NoMethodError"
+  end
+
   def test_with_context_is_scoped_to_the_block
     use_test_delivery
     GoodSorcery.context(outer: 1)

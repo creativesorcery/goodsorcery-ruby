@@ -5,6 +5,7 @@ module GoodSorcery
   # per process, built lazily; GoodSorcery.configure rebuilds its parts.
   class Client
     NETWORK_DELIVERIES = %i[async sync active_job].freeze
+    REPORTING_KEY = :__goodsorcery_reporting
 
     attr_reader :config, :log
 
@@ -15,21 +16,14 @@ module GoodSorcery
       @gate = EnvironmentGate.new(config)
     end
 
-    # => the event id, or nil when nothing was sent. Never raises.
+    # => the event id, or nil when nothing was sent. Never raises. An error
+    # reported while a report is being built on the same thread (from
+    # before_send, the user lookup or a logger that reports errors) is
+    # dropped instead of recursing.
     def notify(error, **options)
-      return nil unless reporting?
+      return nil unless reporting? && !Thread.current[REPORTING_KEY]
 
-      exception = ExceptionCoercion.coerce(error)
-      return nil if skip?(exception)
-
-      ReportedMark.mark(exception)
-      event = prepare_event(exception, options)
-      return nil unless event
-
-      delivery.deliver(event) == false ? nil : event["event_id"]
-    rescue StandardError => e
-      log.error("notify failed with #{e.class}; the error was not reported")
-      nil
+      while_reporting { report(error, options) }
     end
 
     # Builds, filters and runs before_send, without any gating.
@@ -110,6 +104,27 @@ module GoodSorcery
     end
 
     private
+
+    def while_reporting
+      Thread.current[REPORTING_KEY] = true
+      yield
+    ensure
+      Thread.current[REPORTING_KEY] = nil
+    end
+
+    def report(error, options)
+      exception = ExceptionCoercion.coerce(error)
+      return nil if skip?(exception)
+
+      ReportedMark.mark(exception)
+      event = prepare_event(exception, options)
+      return nil unless event
+
+      delivery.deliver(event) == false ? nil : event["event_id"]
+    rescue StandardError => e
+      log.error("notify failed with #{e.class}; the error was not reported")
+      nil
+    end
 
     def pipeline
       @pipeline || @lock.synchronize { @pipeline ||= EventPipeline.new(config, log) }
