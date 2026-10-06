@@ -52,6 +52,15 @@ class ControllerIntegrationTest < Minitest::Test
     assert_equal "orders", params["controller"]
   end
 
+  def test_rails_filter_parameters_apply_to_the_url_query_string
+    request("GET", "/orders/1?internal_note=vip&order%5Binternal_note%5D=x&page=2")
+    request = events.first["request"]
+
+    assert_equal "http://example.org/orders/1?internal_note=[FILTERED]&order%5Binternal_note%5D=[FILTERED]&page=2",
+                 request["url"]
+    assert_equal "[FILTERED]", request["params"]["internal_note"]
+  end
+
   def test_rails_filter_parameters_can_be_turned_off
     GoodSorcery.configure { |config| config.use_rails_filter_parameters = false }
     post_order

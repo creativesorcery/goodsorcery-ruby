@@ -33,13 +33,14 @@ module GoodSorcery
     end
 
     # Masks sensitive parameters in a URL's query string ("user[password]=x"
-    # is matched on "password" as well).
-    def filter_url(url)
+    # is matched on "password" as well). +extra+ (an ExtraFilterProbe) also
+    # applies the extra filters, such as Rails' filter_parameters.
+    def filter_url(url, extra = nil)
       return url unless url.is_a?(String) && url.include?("?")
 
       base, query = url.split("?", 2)
       query, fragment = query.split("#", 2)
-      filtered = "#{base}?#{filter_query(query)}"
+      filtered = "#{base}?#{filter_query(query, extra)}"
       fragment ? "#{filtered}##{fragment}" : filtered
     end
 
@@ -59,22 +60,29 @@ module GoodSorcery
       out[key] = FILTERED unless @remove
     end
 
-    def filter_query(query)
-      query.split("&").filter_map { |pair| filter_query_pair(pair) }.join("&")
+    def filter_query(query, extra)
+      query.split("&").filter_map { |pair| filter_query_pair(pair, extra) }.join("&")
     end
 
-    def filter_query_pair(pair)
+    def filter_query_pair(pair, extra)
       key = pair.split("=", 2).first.to_s
-      return pair unless query_key_names(key).any? { |name| filter_key?(name) }
+      return pair unless sensitive_query_key?(key, extra)
 
       @remove ? nil : "#{key}=#{FILTERED}"
     end
 
-    def query_key_names(key)
-      decoded = URI.decode_www_form_component(key)
-      [decoded, *decoded.scan(/[^\[\]]+/)]
+    def sensitive_query_key?(key, extra)
+      decoded = decode(key)
+      parts = decoded.scan(/[^\[\]]+/)
+      return true if [decoded, *parts].any? { |name| filter_key?(name) }
+
+      extra ? extra.filters_path?(parts) : false
+    end
+
+    def decode(key)
+      URI.decode_www_form_component(key)
     rescue ArgumentError
-      [key]
+      key
     end
 
     def normalize(name)

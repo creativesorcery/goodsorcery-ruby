@@ -169,7 +169,7 @@ config.filter_params = [/password/i]                  # replace the defaults ent
 config.filter_mode = :remove                          # drop keys instead of masking them
 ```
 
-In Rails apps, `Rails.application.config.filter_parameters` is applied as well, with Rails' own matching rules (`ActiveSupport::ParameterFilter`), unless `use_rails_filter_parameters = false`. Values matched by those rules are always masked, even with `filter_mode = :remove`.
+In Rails apps, `Rails.application.config.filter_parameters` is applied as well (to the URL query string too), with Rails' own matching rules (`ActiveSupport::ParameterFilter`), unless `use_rails_filter_parameters = false`. Values matched by those rules are always masked, even with `filter_mode = :remove`.
 
 Key filtering can't protect a secret passed as a bare positional job argument (`perform(user_id, "s3cr3t")`). Turn arguments off for such jobs, or everywhere with `config.send_job_arguments = false`:
 
@@ -281,7 +281,7 @@ Point `endpoint` (or `GOODSORCERY_ENDPOINT`) at your instance, for example `http
 
 These are for integrations and advanced setups:
 
-- `config.extra_filters`: objects responding to `filter(hash) -> hash`, applied after the key filter to every filtered section. `ActiveSupport::ParameterFilter` fits as is; the Rails integration adds one for `filter_parameters`.
+- `config.extra_filters`: objects responding to `filter(hash) -> hash`, applied after the key filter to every filtered section (URL query parameters are checked by filtering a one-value hash at their key path). `ActiveSupport::ParameterFilter` fits as is; the Rails integration adds one for `filter_parameters`.
 - `config.request_extractor`: an object responding to `extract(rack_env) -> Hash` (keys `url`, `method`, `format`, `request_id`, `remote_ip`, `params`, `headers`, `session`). Integrations keep the env in `GoodSorcery.scope.request_env`, so the request is only read when an error is reported. Alternatively they can set `GoodSorcery.scope.request` to a ready hash.
 - `GoodSorcery.scope`, `GoodSorcery.with_scope` and `GoodSorcery.clear_scope` manage the per-thread scope.
 - `scope.enricher`: an object responding to `enrich(scope)`, run once, just before the first event in that scope is built. Integrations use it to fill in `scope.request`, `scope.job`, `scope.user` and `scope.transaction` only when something is reported. `scope.job` takes the `job` section's fields (see [Integrations](#integrations)).

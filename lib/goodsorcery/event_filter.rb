@@ -15,6 +15,7 @@ module GoodSorcery
     def initialize(key_filter, extra_filters = [])
       @key_filter = key_filter
       @extra_filters = Array(extra_filters)
+      @extra_probe = @extra_filters.empty? ? nil : ExtraFilterProbe.new(@extra_filters)
     end
 
     def filter_event(event)
@@ -34,7 +35,7 @@ module GoodSorcery
     private
 
     def filter_request(request)
-      request["url"] = @key_filter.filter_url(request["url"]) if request["url"]
+      request["url"] = @key_filter.filter_url(request["url"], @extra_probe) if request["url"]
       REQUEST_SECTIONS.each { |name| filter_section(request, name) }
     end
 

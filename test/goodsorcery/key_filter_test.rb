@@ -145,4 +145,32 @@ class EventFilterTest < Minitest::Test
 
     assert_equal "[RAILS]", event_filter.filter_event(event)["request"]["params"]["q"]
   end
+
+  # Masks nested values too, like ActiveSupport::ParameterFilter does.
+  DeepFilter = Struct.new(:key) do
+    def filter(hash)
+      hash.to_h do |name, value|
+        next [name, "[FILTERED]"] if name == key
+
+        [name, value.is_a?(Hash) ? filter(value) : value]
+      end
+    end
+  end
+
+  def test_extra_filters_apply_to_the_url_query_too
+    event_filter = GoodSorcery::EventFilter.new(GoodSorcery::KeyFilter.new([]), [DeepFilter.new("pin")])
+    url = "https://x.dev/a?pin=1234&user%5Bpin%5D=99&ids[]=3&page=2#top"
+    filtered = event_filter.filter_event({ "request" => { "url" => url } })
+
+    assert_equal "https://x.dev/a?pin=[FILTERED]&user%5Bpin%5D=[FILTERED]&ids[]=3&page=2#top",
+                 filtered["request"]["url"]
+  end
+
+  def test_extra_filter_probe_follows_nested_paths
+    probe = GoodSorcery::ExtraFilterProbe.new([DeepFilter.new("pin")])
+
+    assert probe.filters_path?(%w[user pin])
+    refute probe.filters_path?(%w[user name])
+    refute probe.filters_path?([])
+  end
 end
