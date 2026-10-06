@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "English"
 require "test_helper"
 
 class TransportTest < Minitest::Test
@@ -158,6 +159,30 @@ class TransportTest < Minitest::Test
     assert_equal "GET", @server.requests.first.http_method
     assert_equal "/api/v1/verify", @server.requests.first.path
     assert_equal "staging", result.body["environment"]
+  end
+
+  def test_a_forked_child_opens_its_own_connection
+    skip "fork is not available" unless Process.respond_to?(:fork)
+    client = transport
+    client.post_event(event_json)
+    pid = fork do
+      result = client.post_event(event_json)
+      client.close
+      exit!(result.success? ? 0 : 1)
+    end
+    Process.wait(pid)
+
+    assert_predicate $CHILD_STATUS, :success?
+    assert_predicate client.post_event(event_json), :success?
+    assert_equal 3, @server.requests.size
+    assert_equal 2, @server.connections, "the child must not write to the parent's keep-alive socket"
+  end
+
+  def test_https_connections_verify_the_certificate
+    connection = GoodSorcery::Transport::Connection.new(URI("https://errors.example.com"), open_timeout: 1,
+                                                                                           read_timeout: 1)
+
+    assert_equal OpenSSL::SSL::VERIFY_PEER, connection.send(:build_http).verify_mode
   end
 
   def test_warns_about_plain_http_for_remote_hosts

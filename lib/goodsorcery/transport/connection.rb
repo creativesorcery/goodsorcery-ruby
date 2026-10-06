@@ -6,6 +6,10 @@ module GoodSorcery
     # so the next one reconnects. A request on a reused connection that the
     # server already closed is retried once on a fresh connection; event
     # POSTs are idempotent because the server deduplicates event_id.
+    #
+    # A connection opened before a fork belongs to the parent: the child
+    # drops it without closing it (closing would end the parent's TLS
+    # session) and opens its own.
     class Connection
       STALE_ERRORS = [EOFError, Errno::ECONNRESET, Errno::EPIPE, Errno::ECONNABORTED].freeze
       KEEP_ALIVE_SECONDS = 15
@@ -15,6 +19,7 @@ module GoodSorcery
         @open_timeout = open_timeout
         @read_timeout = read_timeout
         @http = nil
+        @pid = Process.pid
       end
 
       def request(request)
@@ -33,6 +38,7 @@ module GoodSorcery
       end
 
       def close
+        forget_inherited_connection
         @http&.finish if @http&.started?
       rescue IOError, SystemCallError
         nil
@@ -50,6 +56,7 @@ module GoodSorcery
       end
 
       def http
+        forget_inherited_connection
         return @http if @http&.started?
 
         @http = build_http
@@ -57,9 +64,17 @@ module GoodSorcery
         @http
       end
 
+      def forget_inherited_connection
+        return if @pid == Process.pid
+
+        @pid = Process.pid
+        @http = nil
+      end
+
       def build_http
         http = Net::HTTP.new(@uri.host, @uri.port)
         http.use_ssl = @uri.scheme == "https"
+        http.verify_mode = OpenSSL::SSL::VERIFY_PEER if http.use_ssl?
         http.open_timeout = @open_timeout
         http.read_timeout = @read_timeout
         http.write_timeout = @read_timeout
