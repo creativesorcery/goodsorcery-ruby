@@ -106,6 +106,34 @@ class TransportTest < Minitest::Test
     assert_equal jsons, result.pending
   end
 
+  def test_a_batch_refused_as_too_large_is_split_in_halves
+    @server.handler = lambda do |request|
+      request.json["events"].size > 2 ? [413, {}, '{"error":"payload_too_large"}'] : FakeServer.accept(request)
+    end
+    ids = Array.new(5) { SecureRandom.uuid }
+    result = transport.post_batch(ids.map { |id| event_json(id) })
+    accepted = @server.requests.select { |request| request.json["events"].size <= 2 }
+
+    assert_predicate result, :success?
+    assert_equal([5, 3, 2, 1, 2], @server.requests.map { |request| request.json["events"].size })
+    assert_equal(ids, accepted.flat_map { |request| request.json["events"].map { |event| event["event_id"] } })
+    refute_includes log_output, "rejected"
+  end
+
+  def test_a_rate_limit_while_splitting_keeps_only_the_unsent_events_pending
+    @server.handler = lambda do |request|
+      next [413, {}, "{}"] if request.json["events"].size > 2
+      next [429, { "Retry-After" => "5" }, "{}"] if @server.requests.size > 3
+
+      FakeServer.accept(request)
+    end
+    jsons = Array.new(5) { event_json }
+    result = transport.post_batch(jsons)
+
+    assert_predicate result, :rate_limited?
+    assert_equal jsons[2..], result.pending, "the first two were accepted before the 429"
+  end
+
   def test_server_errors_are_retryable
     respond(503)
 

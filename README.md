@@ -275,7 +275,7 @@ The `:test` delivery ignores the environment check, stores the filtered event ha
 
 ## Self-hosted servers
 
-Point `endpoint` (or `GOODSORCERY_ENDPOINT`) at your instance, for example `https://errors.example.com`. A path prefix such as `https://example.com/tracker` is kept. Servers without the batch endpoint (`404`) are detected once, and the gem then sends one event per request.
+Point `endpoint` (or `GOODSORCERY_ENDPOINT`) at your instance, for example `https://errors.example.com`. A path prefix such as `https://example.com/tracker` is kept. Servers without the batch endpoint (`404`) are detected once, and the gem then sends one event per request. A batch refused as too large (`413`, for example by a proxy with a smaller body limit) is split in halves and resent.
 
 ## Extension points
 

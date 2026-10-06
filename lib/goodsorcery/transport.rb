@@ -34,14 +34,15 @@ module GoodSorcery
     # Sends events in as few requests as possible. On a 429 or a retryable
     # failure it stops and returns that result with the unsent events in
     # +pending+. Falls back to one request per event if the server has no
-    # batch endpoint (404), and remembers that.
+    # batch endpoint (404), and remembers that. A batch the server (or a
+    # proxy in front of it) refuses as too large (413) is split in halves.
     def post_batch(jsons)
       return post_each(jsons) unless @batch_supported
 
       chunks = BatchChunks.split(jsons)
       chunks.each_with_index do |chunk, index|
         result = post_chunk(chunk)
-        return result.with_pending(chunks[index..].flatten) if result.retry_later?
+        return result.with_pending(unsent(result, chunk, chunks[(index + 1)..])) if result.retry_later?
         return post_each(chunks[index..].flatten) if result.not_found? && batch_unsupported!
       end
       Result.new(:success)
@@ -68,9 +69,25 @@ module GoodSorcery
 
     def post_chunk(chunk)
       result = send_request(post(BATCH_PATH, BatchChunks.body(chunk)))
+      return post_halves(chunk) if result.status == 413 && chunk.size > 1
+
       log_result(result, chunk.size) unless result.not_found?
       log_partial_rejections(result) if result.success?
       result
+    end
+
+    def post_halves(chunk)
+      halves = chunk.each_slice((chunk.size + 1) / 2).to_a
+      halves.each_with_index do |half, index|
+        result = post_chunk(half)
+        return result.with_pending(unsent(result, half, halves[(index + 1)..])) if result.retry_later?
+      end
+      Result.new(:success)
+    end
+
+    # What is left after a 429 or retryable result for +chunk+.
+    def unsent(result, chunk, later_chunks)
+      (result.pending.empty? ? chunk : result.pending) + later_chunks.flatten
     end
 
     def post_each(jsons)
