@@ -45,14 +45,27 @@ module GoodSorcery
     def sanitize_object(value, depth)
       return value if value.is_a?(Float) && value.finite?
       return value.utc.iso8601(3) if value.is_a?(Time)
-      return sanitize_hash(value.to_h, depth) if structured?(value)
-      return sanitize_hash(value.to_unsafe_h, depth) if value.respond_to?(:to_unsafe_h)
+      return sanitize_collection(value, depth) if collection?(value)
 
       Text.limit(Text.safe_to_s(value), @max_string)
     end
 
+    # Objects whose to_s would print their fields (OpenStruct's is its
+    # inspect) become hashes or arrays, so their keys are filtered too.
+    def collection?(value)
+      structured?(value) || value.respond_to?(:to_unsafe_h) || value.is_a?(::Set)
+    end
+
     def structured?(value)
-      value.is_a?(Struct) || (defined?(::Data) && value.is_a?(::Data))
+      value.is_a?(Struct) || (defined?(::Data) && value.is_a?(::Data)) ||
+        (defined?(::OpenStruct) && value.is_a?(::OpenStruct)) # rubocop:disable Style/OpenStructUse
+    end
+
+    def sanitize_collection(value, depth)
+      return sanitize_array(value.to_a, depth) if value.is_a?(::Set)
+      return sanitize_hash(value.to_unsafe_h, depth) if value.respond_to?(:to_unsafe_h)
+
+      sanitize_hash(value.to_h, depth)
     end
   end
 end

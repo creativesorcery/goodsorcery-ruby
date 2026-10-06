@@ -42,6 +42,20 @@ class SanitizerTest < Minitest::Test
     assert_in_delta 1.5, result["num"]
   end
 
+  def test_open_structs_and_sets_keep_their_structure_so_keys_are_filtered
+    begin
+      require "ostruct"
+    rescue LoadError
+      skip "ostruct is not installed"
+    end
+    options = OpenStruct.new(password: "hunter2", plan: "pro") # rubocop:disable Style/OpenStructUse
+    result = sanitizer.sanitize("options" => options, "ids" => Set[1, 2])
+    filtered = GoodSorcery::KeyFilter.new(GoodSorcery::Defaults::FILTER_PARAMS).filter(result)
+
+    assert_equal({ "password" => "[FILTERED]", "plan" => "pro" }, filtered["options"])
+    assert_equal [1, 2], filtered["ids"]
+  end
+
   def test_repairs_invalid_utf8_and_binary_strings
     result = sanitizer.sanitize("bad" => (+"caf\xC3"), "bin" => (+"ok\xFF").force_encoding(Encoding::BINARY))
 

@@ -5,6 +5,7 @@ source "https://rubygems.org"
 gemspec
 
 gem "minitest", ">= 5.20"
+gem "ostruct", require: false # Sanitizer tests; not a default gem in newer Rubies
 gem "rake", ">= 13.0"
 gem "rubocop", ">= 1.60", require: false
 
