@@ -18,7 +18,6 @@ class ConfigurationTest < Minitest::Test
     assert_equal 5, config.read_timeout
     assert_equal %w[development test], config.disabled_environments
     assert_nil config.enabled_environments
-    assert_equal :mask, config.filter_mode
     assert_equal GoodSorcery::Defaults::FILTER_PARAMS, config.filter_params
     assert_equal :verify, config.install_check
     assert_equal 40, config.max_breadcrumbs
@@ -137,7 +136,6 @@ class ConfigurationTest < Minitest::Test
   def test_rejects_invalid_numbers_and_choices
     assert_raises(ArgumentError) { config.flush_interval = 0 }
     assert_raises(ArgumentError) { config.max_queue_size = -1 }
-    assert_raises(ArgumentError) { config.filter_mode = :shred }
     assert_raises(ArgumentError) { config.install_check = :sometimes }
     assert_raises(ArgumentError) { config.before_send = "not callable" }
     assert_raises(ArgumentError) { config.enabled = "yes" }
@@ -145,11 +143,9 @@ class ConfigurationTest < Minitest::Test
   end
 
   def test_choice_settings_accept_strings
-    config.filter_mode = "remove"
-    config.install_check = false
+    config.install_check = "test_event"
 
-    assert_equal :remove, config.filter_mode
-    refute config.install_check
+    assert_equal :test_event, config.install_check
   end
 
   def test_configure_rebuilds_delivery_only_when_delivery_settings_change

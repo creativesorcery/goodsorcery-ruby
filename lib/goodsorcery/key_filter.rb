@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module GoodSorcery
-  # Masks (or removes) values under sensitive keys, at any depth.
+  # Masks values under sensitive keys, at any depth.
   #
   # Strings and symbols match a whole key, case-insensitively, with "-" and
   # "_" treated as equal ("secret_key" matches "Secret-Key" but not
@@ -12,11 +12,10 @@ module GoodSorcery
     FILTERED = "[FILTERED]"
     MAX_DEPTH = 16
 
-    def initialize(patterns, mode: :mask)
+    def initialize(patterns)
       regexps, names = Array(patterns).partition { |pattern| pattern.is_a?(Regexp) }
       @names = names.to_h { |name| [normalize(name), true] }
       @pattern = regexps.empty? ? nil : Regexp.union(regexps)
-      @remove = mode == :remove
     end
 
     def filter_key?(key)
@@ -58,18 +57,18 @@ module GoodSorcery
     def filter_entry(out, key, value, depth)
       return out[key] = filter(value, depth + 1) unless filter_key?(key)
 
-      out[key] = FILTERED unless @remove
+      out[key] = FILTERED
     end
 
     def filter_query(query, extra)
-      query.split("&").filter_map { |pair| filter_query_pair(pair, extra) }.join("&")
+      query.split("&").map { |pair| filter_query_pair(pair, extra) }.join("&")
     end
 
     def filter_query_pair(pair, extra)
       key = pair.split("=", 2).first.to_s
       return pair unless sensitive_query_key?(key, extra)
 
-      @remove ? nil : "#{key}=#{FILTERED}"
+      "#{key}=#{FILTERED}"
     end
 
     def sensitive_query_key?(key, extra)

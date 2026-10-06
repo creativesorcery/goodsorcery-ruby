@@ -20,7 +20,6 @@ GoodSorcery.configure do |config|
   # regexps match any part of a key. Rails' filter_parameters apply too.
   # config.filter_params += %i[card_token ssn]
   # config.filter_params += [/_key\z/i]
-  # config.filter_mode = :mask                           # or :remove
   # config.use_rails_filter_parameters = true
   # config.send_request_params = true
   # config.send_request_headers = true

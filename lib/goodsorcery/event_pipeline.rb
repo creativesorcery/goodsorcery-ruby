@@ -6,7 +6,7 @@ module GoodSorcery
   class EventPipeline
     def initialize(config, log)
       @builder = Event::Builder.new(config)
-      @filter = EventFilter.new(KeyFilter.new(config.filter_params, mode: config.filter_mode), config.event_filters)
+      @filter = EventFilter.new(KeyFilter.new(config.filter_params), config.event_filters)
       @before_send = config.before_send
       @log = log
     end

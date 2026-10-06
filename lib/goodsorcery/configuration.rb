@@ -21,12 +21,11 @@ module GoodSorcery
                   :user_method, :send_code_context, :breadcrumbs,
                   :report_handled_errors, :active_job_queue, :request_extractor,
                   :send_request_params, :send_request_headers, :send_session, :send_job_arguments
-    attr_reader :delivery, :filter_mode, :batch_size, :flush_interval, :max_queue_size,
+    attr_reader :delivery, :batch_size, :flush_interval, :max_queue_size,
                 :shutdown_timeout, :max_retries, :open_timeout, :read_timeout,
                 :max_breadcrumbs, :install_check, :before_send
 
     endpoint_setting
-    choice_setting :filter_mode, %i[mask remove]
     choice_setting :install_check, [:verify, :test_event, false]
     integer_setting :batch_size, 1..100
     integer_setting :max_queue_size, 1..1_000_000
@@ -149,7 +148,6 @@ module GoodSorcery
     end
 
     def assign_behaviour_defaults
-      @filter_mode = :mask
       @use_rails_filter_parameters = true
       @user_method = :current_user
       @send_code_context = true

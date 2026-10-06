@@ -86,7 +86,6 @@ Change settings inside `GoodSorcery.configure`: it recompiles the filters and re
 | `release` | auto-detected (see below) | Version or commit, up to 64 chars. |
 | `root` | `Dir.pwd` (`Rails.root` in Rails) | Makes backtrace paths app-relative and decides which frames are "in app". |
 | `filter_params` | see [Filtering](#filtering) | Strings/symbols match whole keys; regexps match any part. |
-| `filter_mode` | `:mask` | `:mask` replaces values with `"[FILTERED]"`; `:remove` drops the key. |
 | `use_rails_filter_parameters` | `true` | Also apply `Rails.application.config.filter_parameters` (Rails integration). |
 | `extra_filters` | `[]` | Objects responding to `filter(hash) -> hash`; see [Extension points](#extension-points). |
 | `ignore_exceptions` | Rails/Rack routing and 4xx errors, `SignalException`, `SystemExit` | Class names; subclasses are ignored too. |
@@ -166,10 +165,9 @@ config.filter_params += %i[card_token ssn]            # add exact keys
 config.filter_params += [/_key\z/i, /secret_key/i]    # add patterns
 config.filter_params -= [/email/i]                    # remove a default
 config.filter_params = [/password/i]                  # replace the defaults entirely
-config.filter_mode = :remove                          # drop keys instead of masking them
 ```
 
-In Rails apps, `Rails.application.config.filter_parameters` is applied as well (to the URL query string too), with Rails' own matching rules (`ActiveSupport::ParameterFilter`), unless `use_rails_filter_parameters = false`. Values matched by those rules are always masked, even with `filter_mode = :remove`.
+In Rails apps, `Rails.application.config.filter_parameters` is applied as well (to the URL query string too), with Rails' own matching rules (`ActiveSupport::ParameterFilter`), unless `use_rails_filter_parameters = false`.
 
 Key filtering can't protect a secret passed as a bare positional job argument (`perform(user_id, "s3cr3t")`). Turn arguments off for such jobs, or everywhere with `config.send_job_arguments = false`:
 

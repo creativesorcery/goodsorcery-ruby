@@ -5,8 +5,8 @@ require "test_helper"
 class KeyFilterTest < Minitest::Test
   FILTERED = GoodSorcery::KeyFilter::FILTERED
 
-  def filter(patterns, mode: :mask)
-    GoodSorcery::KeyFilter.new(patterns, mode: mode)
+  def filter(patterns)
+    GoodSorcery::KeyFilter.new(patterns)
   end
 
   def test_regexp_matches_any_part_of_a_key
@@ -54,12 +54,6 @@ class KeyFilterTest < Minitest::Test
     assert_equal FILTERED, result["Authorization"]
   end
 
-  def test_remove_mode_drops_keys
-    result = filter([/token/i], mode: :remove).filter("token" => "t", "keep" => { "csrf_token" => "c", "a" => 1 })
-
-    assert_equal({ "keep" => { "a" => 1 } }, result)
-  end
-
   def test_masks_a_whole_nested_value
     assert_equal({ "secret" => FILTERED }, filter([/secret/i]).filter("secret" => { "a" => [1, 2] }))
   end
@@ -91,10 +85,6 @@ class KeyFilterTest < Minitest::Test
     assert_equal "https://x.dev/plain", key_filter.filter_url("https://x.dev/plain")
   end
 
-  def test_removes_url_query_parameters_in_remove_mode
-    assert_equal "/cb?page=2", filter([/token/], mode: :remove).filter_url("/cb?token=abc&page=2")
-  end
-
   def test_default_list_is_extendable_and_replaceable
     config = GoodSorcery::Configuration.new
     config.filter_params += %i[card_token]
@@ -103,6 +93,10 @@ class KeyFilterTest < Minitest::Test
 
     assert extended.filter_key?("card_token")
     assert extended.filter_key?("password")
+    assert extended.filter_key?("email")
+
+    config.filter_params -= [/email/i]
+    refute filter(config.filter_params).filter_key?("email")
 
     config.filter_params = [/password/i]
     replaced = filter(config.filter_params)

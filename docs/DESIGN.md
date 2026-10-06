@@ -64,7 +64,6 @@ GoodSorcery.configure do |config|
   config.filter_params += %i[card_token ssn]
   config.filter_params += [/_key\z/i, /secret_key/i]
   # config.filter_params = [/password/i]               # replace the defaults entirely
-  # config.filter_mode = :mask                          # :mask (default) => "[FILTERED]", :remove => key dropped
   # config.use_rails_filter_parameters = true           # default: also apply Rails.application.config.filter_parameters
 
   # Delivery
@@ -113,7 +112,7 @@ DEFAULT_FILTER_PARAMS = [
 ].freeze
 ```
 
-Filtering applies to keys at any depth in: `request.params`, `request.headers`, `request.session`, the query string of `request.url`, `context`, `breadcrumbs[].data`, `tags` and anything passed to `notify(context:)`. It does **not** apply to the `user` object (its `id`, `email`, `username` and `name` exist to identify affected users; don't set the ones you don't want sent). Values are masked as `"[FILTERED]"` (or the key removed with `filter_mode = :remove`). In Rails apps, `Rails.application.config.filter_parameters` is applied as well via `ActiveSupport::ParameterFilter` (with Rails' own matching rules), unless `use_rails_filter_parameters = false`.
+Filtering applies to keys at any depth in: `request.params`, `request.headers`, `request.session`, the query string of `request.url`, `context`, `breadcrumbs[].data`, `tags` and anything passed to `notify(context:)`. It does **not** apply to the `user` object (its `id`, `email`, `username` and `name` exist to identify affected users; don't set the ones you don't want sent). Values are always masked as `"[FILTERED]"`; keys are kept so you can see what was filtered. In Rails apps, `Rails.application.config.filter_parameters` is applied as well via `ActiveSupport::ParameterFilter` (with Rails' own matching rules), unless `use_rails_filter_parameters = false`.
 
 ## 4. Install check on `bundle install` (development)
 
