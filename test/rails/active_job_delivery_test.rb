@@ -20,6 +20,7 @@ class ActiveJobDeliveryTest < Minitest::Test
       config.flush_interval = 0.01
     end
     clear_enqueued_jobs
+    GoodSorcery.log.forget(:active_job_fallback)
     GoodSorcery::Delivery::DeliveryJobLoader.job_class
   end
 
@@ -83,6 +84,20 @@ class ActiveJobDeliveryTest < Minitest::Test
     assert_equal ["/api/v1/events/batch"], @server.requests.map(&:path)
     assert_equal id, @server.requests.first.json["events"].first["event_id"]
     assert_includes log_output, "enqueueing GoodSorcery::DeliveryJob failed (IOError)"
+  ensure
+    GoodSorcery::DeliveryJob.singleton_class.send(:remove_method, :set)
+  end
+
+  # Rails returns false instead of raising when a callback aborts the
+  # enqueue or the adapter raises ActiveJob::EnqueueError.
+  def test_falls_back_to_the_background_thread_when_enqueueing_is_refused
+    refused = Struct.new(:queue) { def perform_later(_json) = false }
+    GoodSorcery::DeliveryJob.define_singleton_method(:set) { |queue:| refused.new(queue) }
+    id = GoodSorcery.notify(raise_and_rescue)
+
+    assert GoodSorcery.flush(2)
+    assert_equal id, @server.requests.first.json["events"].first["event_id"]
+    assert_includes log_output, "GoodSorcery::DeliveryJob was not enqueued"
   ensure
     GoodSorcery::DeliveryJob.singleton_class.send(:remove_method, :set)
   end

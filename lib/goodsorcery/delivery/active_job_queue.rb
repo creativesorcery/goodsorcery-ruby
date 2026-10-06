@@ -22,8 +22,9 @@ module GoodSorcery
         json = @serializer.dump(event)
         return false unless json
 
-        job.set(queue: @queue_name).perform_later(json)
-        true
+        return true if enqueued?(job.set(queue: @queue_name).perform_later(json))
+
+        deliver_in_background(event, "GoodSorcery::DeliveryJob was not enqueued")
       rescue StandardError => e
         deliver_in_background(event, "enqueueing GoodSorcery::DeliveryJob failed (#{e.class})")
       end
@@ -37,6 +38,14 @@ module GoodSorcery
       end
 
       private
+
+      # perform_later returns false when a callback aborted the enqueue or
+      # the adapter raised ActiveJob::EnqueueError.
+      def enqueued?(job)
+        return false unless job
+
+        job.respond_to?(:successfully_enqueued?) ? job.successfully_enqueued? != false : true
+      end
 
       def deliver_in_background(event, reason)
         @log.warn_every(:active_job_fallback, 60, "#{reason}; delivering in the background thread instead")
