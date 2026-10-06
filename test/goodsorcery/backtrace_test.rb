@@ -43,6 +43,23 @@ class BacktraceParserTest < Minitest::Test
     assert_equal [["/a/b.rb", 1, "A#b"], ["/a/c.rb", 2, "c"]], parser.frames(error).map(&:to_a)
   end
 
+  def test_parses_only_the_frames_it_keeps
+    deep = ->(depth) { depth.zero? ? raise("deep") : deep.call(depth - 1) }
+    error = begin
+      deep.call(400)
+    rescue RuntimeError => e
+      e
+    end
+    lines = RuntimeError.new("x")
+    lines.set_backtrace(Array.new(1_000) { |index| "/a/b.rb:#{index}" })
+    counting = parser
+    def counting.parse(line) = (@parsed = (@parsed || 0) + 1) && super
+    counting.frames(lines, limit: 250)
+
+    assert_equal 250, parser.frames(error, limit: 250).size
+    assert_equal 250, counting.instance_variable_get(:@parsed)
+  end
+
   def test_unraised_exception_has_no_frames
     assert_empty parser.frames(RuntimeError.new("x"))
   end

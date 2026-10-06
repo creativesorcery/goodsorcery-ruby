@@ -39,7 +39,7 @@ module GoodSorcery
 
       def backtrace(exception)
         remaining = @send_code_context ? CONTEXT_FRAMES : 0
-        @parser.frames(exception).first(MAX_FRAMES).map do |frame|
+        @parser.frames(exception, limit: MAX_FRAMES).map do |frame|
           hash = frame_hash(frame)
           next hash unless hash["in_app"] && remaining.positive?
 

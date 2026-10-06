@@ -17,7 +17,7 @@ module GoodSorcery
         @installed = true
         ::Sidekiq.configure_server do |config|
           config.server_middleware { |chain| chain.add(ServerMiddleware) }
-          config.error_handlers << ErrorHandler.new
+          config.error_handlers << ErrorHandler.new.method(:report)
         end
       end
 
@@ -36,10 +36,11 @@ module GoodSorcery
         end
       end
 
-      # Sidekiq error handler: (exception, context) before Sidekiq 7,
-      # (exception, context, config) since.
+      # Sidekiq error handler, registered as its #report method: Sidekiq
+      # passes (exception, context) before Sidekiq 7, (exception, context,
+      # config) since.
       class ErrorHandler
-        def call(exception, context, _config = nil)
+        def report(exception, context, _config = nil)
           return if ReportedMark.reported?(exception)
 
           job = context.is_a?(Hash) ? context[:job] : nil

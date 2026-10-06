@@ -11,11 +11,14 @@ module GoodSorcery
     class Parser
       LINE = /\A(?<path>.+?):(?<line>\d+)(?::in [`'](?<label>.*)')?\z/
 
-      def frames(exception)
+      # The first +limit+ frames; the rest are never parsed, so a deep
+      # SystemStackError backtrace costs no more than a short one.
+      def frames(exception, limit: nil)
         locations = exception.backtrace_locations
-        return locations.map { |location| from_location(location) } if locations
+        return locations.first(limit || locations.size).map { |location| from_location(location) } if locations
 
-        Array(exception.backtrace).filter_map { |line| parse(line.to_s) }
+        lines = Array(exception.backtrace)
+        lines.first(limit || lines.size).filter_map { |line| parse(line.to_s) }
       end
 
       def parse(line)

@@ -65,14 +65,14 @@ class SidekiqIntegrationTest < Minitest::Test
 
   def test_error_handler_does_not_report_the_same_exception_twice
     error = run_failing(job_hash)
-    handler.call(error, { job: job_hash, context: "Job raised exception" }, Sidekiq.default_configuration)
+    handler.report(error, { job: job_hash, context: "Job raised exception" }, Sidekiq.default_configuration)
 
     assert_equal 1, events.size
   end
 
   def test_error_handler_reports_what_the_middleware_never_saw
     error = raise_and_rescue(JobError, "fetch failed")
-    handler.call(error, { job: job_hash, context: "Job raised exception" })
+    handler.report(error, { job: job_hash, context: "Job raised exception" })
 
     assert_equal 1, events.size
     assert_equal "b4a577edbccf1d805744efa9", events.first["job"]["id"]
@@ -108,10 +108,17 @@ class SidekiqIntegrationTest < Minitest::Test
     with_sidekiq_server { GoodSorcery::Integrations::Sidekiq.install }
 
     assert config.server_middleware.exists?(GoodSorcery::Integrations::Sidekiq::ServerMiddleware)
-    assert(config.error_handlers.any?(GoodSorcery::Integrations::Sidekiq::ErrorHandler))
+    assert(config.error_handlers.any? { |entry| goodsorcery_handler?(entry) })
+    registered = config.error_handlers.find { |entry| goodsorcery_handler?(entry) }
+    registered.call(JobError.new("x"), { job: job_hash }, config)
+    assert_equal 1, events.size
   ensure
     config.server_middleware.remove(GoodSorcery::Integrations::Sidekiq::ServerMiddleware)
-    config.error_handlers.delete_if { |entry| entry.is_a?(GoodSorcery::Integrations::Sidekiq::ErrorHandler) }
+    config.error_handlers.delete_if { |entry| goodsorcery_handler?(entry) }
+  end
+
+  def goodsorcery_handler?(entry)
+    entry.respond_to?(:receiver) && entry.receiver.is_a?(GoodSorcery::Integrations::Sidekiq::ErrorHandler)
   end
 
   def with_sidekiq_server
