@@ -159,7 +159,7 @@ GoodSorcery::Defaults::FILTER_PARAMS
 ```
 
 - **Strings and symbols** match a whole key, case-insensitively, with `-` and `_` treated as equal: `"secret_key"` matches `secret_key` and `Secret-Key`, but not `my_secret_key`.
-- **Regexps** match any part of a key: `/_key/i` matches `api_key` and `secret_key_base`.
+- **Regexps** match any part of a key, as spelled or with `-` read as `_`: `/_key/i` matches `api_key`, `secret_key_base` and the `X-Access-Key` header.
 
 ```ruby
 config.filter_params += %i[card_token ssn]            # add exact keys

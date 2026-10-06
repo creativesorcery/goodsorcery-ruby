@@ -5,8 +5,9 @@ module GoodSorcery
   #
   # Strings and symbols match a whole key, case-insensitively, with "-" and
   # "_" treated as equal ("secret_key" matches "Secret-Key" but not
-  # "my_secret_key"). Regexps match any part of a key. Patterns are compiled
-  # once, when the filter is built.
+  # "my_secret_key"). Regexps match any part of a key, in its own spelling
+  # or with "-" read as "_" (so /_key/ catches the "X-Access-Key" header).
+  # Patterns are compiled once, when the filter is built.
   class KeyFilter
     FILTERED = "[FILTERED]"
     MAX_DEPTH = 16
@@ -20,7 +21,7 @@ module GoodSorcery
 
     def filter_key?(key)
       name = key.to_s
-      @names.key?(normalize(name)) || (@pattern ? @pattern.match?(name) : false)
+      @names.key?(normalize(name)) || pattern_match?(name)
     end
 
     # Returns a filtered copy of +value+ (hashes and arrays are rebuilt).
@@ -83,6 +84,13 @@ module GoodSorcery
       URI.decode_www_form_component(key)
     rescue ArgumentError
       key
+    end
+
+    def pattern_match?(name)
+      return false unless @pattern
+      return true if @pattern.match?(name)
+
+      name.include?("-") && @pattern.match?(name.tr("-", "_"))
     end
 
     def normalize(name)

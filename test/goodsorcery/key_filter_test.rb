@@ -17,6 +17,14 @@ class KeyFilterTest < Minitest::Test
     refute key_filter.filter_key?("keyboard")
   end
 
+  def test_regexps_read_dashes_as_underscores_too
+    key_filter = filter(GoodSorcery::Defaults::FILTER_PARAMS)
+
+    %w[X-Access-Key X-Private-Key X-Auth-Key stripe-key].each { |name| assert key_filter.filter_key?(name), name }
+    refute key_filter.filter_key?("X-Request-Id")
+    refute key_filter.filter_key?("Keep-Alive")
+  end
+
   def test_string_matches_whole_key_case_insensitively_with_dash_and_underscore_equal
     key_filter = filter(["secret_key"])
 
