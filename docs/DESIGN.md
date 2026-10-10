@@ -1,6 +1,6 @@
 # goodsorcery (Ruby client): design
 
-The `goodsorcery` gem reports exceptions from Ruby and Rails apps to a Good Sorcery error tracker (`../error_tracker`). The payload it sends is specified in `error_tracker/docs/INGEST_API.md`. This document is the binding blueprint for the gem and for the server changes made alongside it.
+The `goodsorcery` gem reports exceptions from Ruby and Rails apps to a Good Sorcery error tracker (`../goodsorcery_web`). The payload it sends is specified in `goodsorcery_web/docs/INGEST_API.md`. This document is the binding blueprint for the gem and for the server changes made alongside it.
 
 ## 1. Research: how other error-tracking gems deliver events
 
@@ -190,7 +190,7 @@ GoodSorcery.test_events / GoodSorcery.clear_test_events        # with delivery :
 
 `notify` never raises (internal errors are logged and swallowed) and does the minimum work in the caller: build, filter, `before_send`, enqueue.
 
-## 7. Server changes (error_tracker)
+## 7. Server changes (goodsorcery_web)
 
 - `POST /api/v1/events/batch`: body `{"events":[…]}` with 1–100 events; body ≤ 2 MiB (compressed and decompressed); each event is validated exactly like the single endpoint and must re-serialise to ≤ 512 KiB. Same auth, gzip, quota, media-type rules. Per-key and per-account rate limits count **events** (a batch of N consumes N; the single endpoint consumes 1, sharing counters); over the limit the whole batch gets `429` + `Retry-After`. Accepted events are stored as encrypted `InboundEvent`s in one transaction and enqueued with one bulk enqueue (`ActiveJob.perform_all_later`). Response `202 {"accepted":[{"index":0,"id":"…"}],"rejected":[{"index":3,"error":"invalid_payload","messages":["…"]}]}`; if nothing was accepted, the same body with `422`.
 - `GET /api/v1/verify`: authenticates the key (same rate limiting by IP and key) and returns `200 {"ok":true,"environment":"staging"}` without creating anything. Used by the install check.
