@@ -7,9 +7,9 @@ module GoodSorcery
   module Generators
     # bin/rails generate goodsorcery:install [--api-key=KEY]
     #
-    # Writes config/initializers/goodsorcery.rb, adds `plugin "goodsorcery"`
-    # to the Gemfile, and stores the API key in the encrypted credentials when
-    # one is given and they can be decrypted. Never prints the key.
+    # Writes config/initializers/goodsorcery.rb and stores the API key in the
+    # encrypted credentials when one is given and they can be decrypted. Never
+    # prints the key. The Bundler plugin stays opt-in (README, Install check).
     class InstallGenerator < ::Rails::Generators::Base
       namespace "goodsorcery:install"
       source_root File.expand_path("templates", __dir__)
@@ -17,13 +17,6 @@ module GoodSorcery
 
       class_option :api_key, type: :string, desc: "Ingest API key to store in Rails credentials"
 
-      PLUGIN_LINE = /^\s*plugin\s+["']goodsorcery["']/
-      PLUGIN_SNIPPET = <<~RUBY
-
-        # Checks the Good Sorcery endpoint and API key after `bundle install` in
-        # development (never in CI or production). Set GOODSORCERY_SKIP_INSTALL_CHECK=1 to skip.
-        plugin "goodsorcery"
-      RUBY
       KEY_HINT = <<~TEXT
         Add your API key with `bin/rails credentials:edit`:
 
@@ -32,17 +25,13 @@ module GoodSorcery
 
         or set the GOODSORCERY_API_KEY environment variable.
       TEXT
+      NEXT_STEPS = <<~TEXT
+        Check the key and endpoint with `bin/rails goodsorcery:verify` (sends nothing),
+        then send a test error with `bin/rails goodsorcery:test`.
+      TEXT
 
       def create_initializer
         copy_file "initializer.rb", "config/initializers/goodsorcery.rb"
-      end
-
-      def add_bundler_plugin
-        gemfile = File.join(destination_root, "Gemfile")
-        return unless File.exist?(gemfile)
-        return if File.read(gemfile).match?(PLUGIN_LINE)
-
-        append_to_file "Gemfile", PLUGIN_SNIPPET
       end
 
       def store_api_key
@@ -51,6 +40,10 @@ module GoodSorcery
 
         credentials = CredentialsApiKey.new(::Rails.application.credentials)
         report_credentials(credentials.add(api_key), credentials.path)
+      end
+
+      def print_next_steps
+        say(NEXT_STEPS)
       end
 
       private

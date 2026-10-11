@@ -13,7 +13,6 @@ The Ruby client for the [Good Sorcery](https://app.goodsorcery.com) error tracke
 ```ruby
 # Gemfile
 gem "goodsorcery"
-plugin "goodsorcery"   # optional: checks your setup after `bundle install` in development
 ```
 
 ```sh
@@ -21,7 +20,7 @@ bundle install
 export GOODSORCERY_API_KEY=gs_live_...   # or use Rails credentials, see below
 ```
 
-In a Rails app, run the generator. It writes `config/initializers/goodsorcery.rb` (every option, commented out), adds `plugin "goodsorcery"` to the Gemfile, and with `--api-key` stores the key in your encrypted credentials. It never prints the key.
+In a Rails app, run the generator. It writes `config/initializers/goodsorcery.rb` (every option, commented out) and, with `--api-key`, stores the key in your encrypted credentials. It never prints the key.
 
 ```sh
 bin/rails generate goodsorcery:install --api-key=gs_live_...
@@ -233,7 +232,9 @@ Rails apps get this automatically; elsewhere `require "goodsorcery/tasks"` in yo
 
 ## Install check
 
-With `plugin "goodsorcery"` in the Gemfile, every `bundle install` runs a short check, but only when `RAILS_ENV`/`RACK_ENV`/`APP_ENV` are unset or `development`, `CI` is unset, `GOODSORCERY_SKIP_INSTALL_CHECK` is unset and the Gemfile depends on `goodsorcery`. It runs `bundle exec ruby` in the app root with a 30-second limit, boots the app (`config/environment.rb` when present, so your initializer applies) and, per `config.install_check`:
+`bin/rails goodsorcery:verify` (or `rake goodsorcery:verify`) checks your setup on demand; see the end of this section.
+
+The gem can also run that check after every `bundle install`. It's a Bundler plugin, so it's opt-in: add `plugin "goodsorcery"` to your Gemfile. Each `bundle install` then boots your app and calls the server, so leave it out if that's too slow or noisy. With the plugin, every `bundle install` runs a short check, but only when `RAILS_ENV`/`RACK_ENV`/`APP_ENV` are unset or `development`, `CI` is unset, `GOODSORCERY_SKIP_INSTALL_CHECK` is unset and the Gemfile depends on `goodsorcery`. It runs `bundle exec ruby` in the app root with a 30-second limit, boots the app (`config/environment.rb` when present, so your initializer applies) and, per `config.install_check`:
 
 - `:verify` (default): prints the endpoint, environment (and why reporting is on or off), delivery and masked key, then calls `GET /api/v1/verify`. No event is created.
 - `:test_event`: also sends a real `GoodSorcery::TestError`, even in development.

@@ -34,14 +34,14 @@ class InstallGeneratorTest < Rails::Generators::TestCase
     Rails.application.credentials = previous
   end
 
-  def test_writes_the_initializer_and_the_bundler_plugin_once
+  def test_writes_the_initializer_and_leaves_the_gemfile_alone
     output = run_generator
-    run_generator
 
     assert_file "config/initializers/goodsorcery.rb", /GoodSorcery\.configure do \|config\|/
     assert_file "config/initializers/goodsorcery.rb", /# config\.send_job_arguments = true/
-    assert_file("Gemfile") { |gemfile| assert_equal 1, gemfile.scan(/^plugin "goodsorcery"/).size }
+    assert_file("Gemfile") { |gemfile| refute_match(/^plugin /, gemfile) }
     assert_includes output, "GOODSORCERY_API_KEY"
+    assert_includes output, "bin/rails goodsorcery:verify"
   end
 
   def test_stores_the_api_key_in_credentials_without_printing_it

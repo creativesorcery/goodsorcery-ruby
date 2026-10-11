@@ -116,7 +116,7 @@ Filtering applies to keys at any depth in: `request.params`, `request.headers`, 
 
 ## 4. Install check on `bundle install` (development)
 
-The gem ships a Bundler plugin (`plugins.rb` at the gem root). Apps opt in with one Gemfile line (the generator adds it):
+The gem ships a Bundler plugin (`plugins.rb` at the gem root). Apps opt in with one Gemfile line. The generator doesn't add it, because the check boots the app and calls the server on every `bundle install`:
 
 ```ruby
 gem "goodsorcery"
