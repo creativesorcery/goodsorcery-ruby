@@ -35,6 +35,6 @@ module GoodSorcery
     ].freeze
 
     DISABLED_ENVIRONMENTS = %w[development test].freeze
-    ENDPOINT = "https://errors.goodsorcery.dev"
+    ENDPOINT = "https://app.goodsorcery.com"
   end
 end

@@ -50,7 +50,7 @@ GoodSorcery.configure do |config|
   # Credentials. Default lookup order: ENV["GOODSORCERY_API_KEY"], then
   # Rails.application.credentials.dig(:goodsorcery, :api_key).
   config.api_key  = Rails.application.credentials.dig(:goodsorcery, :api_key)
-  # Default: ENV["GOODSORCERY_ENDPOINT"] || "https://errors.goodsorcery.dev"
+  # Default: ENV["GOODSORCERY_ENDPOINT"] || "https://app.goodsorcery.com"
   config.endpoint = "https://errors.example.com"
 
   # Environments. Default environment: ENV["GOODSORCERY_ENV"] || Rails.env || RACK_ENV || APP_ENV || "development".

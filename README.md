@@ -1,6 +1,6 @@
 # goodsorcery
 
-The Ruby client for the [Good Sorcery](https://errors.goodsorcery.dev) error tracker. It reports exceptions from Ruby and Rails apps without slowing them down:
+The Ruby client for the [Good Sorcery](https://app.goodsorcery.com) error tracker. It reports exceptions from Ruby and Rails apps without slowing them down:
 
 - Events are built and filtered in the calling thread, then handed to **one background thread** that sends them in **batches** over a keep-alive, gzip-compressed HTTPS connection.
 - Sensitive data is **filtered in-process** before anything leaves your app (the server scrubs again as a second layer).
@@ -78,7 +78,7 @@ Change settings inside `GoodSorcery.configure`: it recompiles the filters and re
 | Setting | Default | Notes |
 |---|---|---|
 | `api_key` | `ENV["GOODSORCERY_API_KEY"]`, then `Rails.application.credentials.dig(:goodsorcery, :api_key)` | Per-environment ingest key. Never logged in full (`inspect` shows it masked). A missing key disables delivery with one warning. |
-| `endpoint` | `ENV["GOODSORCERY_ENDPOINT"]` or `https://errors.goodsorcery.dev` | Your self-hosted URL (`http://` or `https://`; credentials in the URL are refused). `http://` is fine for localhost. |
+| `endpoint` | `ENV["GOODSORCERY_ENDPOINT"]` or `https://app.goodsorcery.com` | Your self-hosted URL (`http://` or `https://`; credentials in the URL are refused). `http://` is fine for localhost. |
 | `environment` | `ENV["GOODSORCERY_ENV"]`, `Rails.env`, `RACK_ENV`, `APP_ENV`, else `"development"` | Used for gating only; the server takes the environment from the key. |
 | `disabled_environments` | `%w[development test]` | Environments that don't report. |
 | `enabled_environments` | `nil` | Allow-list; when set, only these report. |

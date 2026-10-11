@@ -22,7 +22,7 @@ class ConfigurationTest < Minitest::Test
     assert_equal :verify, config.install_check
     assert_equal 40, config.max_breadcrumbs
     assert_equal "default", config.active_job_queue
-    assert_equal "https://errors.goodsorcery.dev", config.endpoint
+    assert_equal "https://app.goodsorcery.com", config.endpoint
   end
 
   def test_default_lists_are_copies

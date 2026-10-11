@@ -12,12 +12,14 @@ Gem::Specification.new do |spec|
   spec.description = "Reports exceptions from Ruby and Rails apps to Good Sorcery. " \
                      "Filters sensitive data in-process and delivers events in batches " \
                      "from a background thread, without blocking the host app."
-  spec.homepage = "https://errors.goodsorcery.dev"
+  spec.homepage = "https://app.goodsorcery.com"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.2"
 
   spec.metadata["rubygems_mfa_required"] = "true"
-  spec.metadata["changelog_uri"] = "#{spec.homepage}/changelog"
+  spec.metadata["source_code_uri"] = "https://github.com/creativesorcery/goodsorcery-ruby"
+  spec.metadata["changelog_uri"] = "https://github.com/creativesorcery/goodsorcery-ruby/blob/main/CHANGELOG.md"
+  spec.metadata["bug_tracker_uri"] = "https://github.com/creativesorcery/goodsorcery-ruby/issues"
 
   tracked = `git -C #{__dir__} ls-files -z 2>/dev/null`.split("\x0")
   spec.files = tracked.select do |path|
