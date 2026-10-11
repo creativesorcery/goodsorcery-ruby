@@ -87,7 +87,7 @@ Change settings inside `GoodSorcery.configure`: it recompiles the filters and re
 | `filter_params` | see [Filtering](#filtering) | Strings/symbols match whole keys; regexps match any part. |
 | `use_rails_filter_parameters` | `true` | Also apply `Rails.application.config.filter_parameters` (Rails integration). |
 | `extra_filters` | `[]` | Objects responding to `filter(hash) -> hash`; see [Extension points](#extension-points). |
-| `ignore_exceptions` | Rails/Rack routing and 4xx errors, `SignalException`, `SystemExit` | Class names; subclasses are ignored too. |
+| `ignore_exceptions` | Rails/Rack routing and 4xx errors, Sidekiq's internal retry signals (`Sidekiq::JobRetry::Handled`, `Sidekiq::JobRetry::Skip`), `SignalException`, `SystemExit` | Class names; subclasses are ignored too. |
 | `before_send` | `nil` | `->(event) { event }`. Return a (changed) hash, or `nil` to drop. If it raises, the event is dropped and the error class logged. |
 | `tags` | `{}` | Global tags on every event. |
 | `user_method` | `:current_user` | Controller method the Rails integration uses to find the user. |

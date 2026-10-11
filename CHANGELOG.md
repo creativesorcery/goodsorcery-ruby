@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `Sidekiq::JobRetry::Handled` and `Sidekiq::JobRetry::Skip` are ignored by default. Sidekiq raises them internally after its retry handling, so reporting them only duplicated the original error.
+
 ## 0.1.0 (2026-10-10)
 
 - First release.

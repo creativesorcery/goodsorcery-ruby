@@ -31,6 +31,8 @@ class ConfigurationTest < Minitest::Test
 
     refute_includes GoodSorcery::Defaults::FILTER_PARAMS, :card_token
     assert_includes GoodSorcery::Defaults::IGNORE_EXCEPTIONS, "SystemExit"
+    assert_includes GoodSorcery::Defaults::IGNORE_EXCEPTIONS, "Sidekiq::JobRetry::Handled"
+    assert_includes GoodSorcery::Defaults::IGNORE_EXCEPTIONS, "Sidekiq::JobRetry::Skip"
   end
 
   def test_reads_credentials_and_endpoint_from_env

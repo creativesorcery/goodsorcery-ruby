@@ -29,6 +29,8 @@ module GoodSorcery
       CGI::Session::CookieStore::TamperedWithCookie
       Rack::QueryParser::InvalidParameterError
       Rack::QueryParser::ParameterTypeError
+      Sidekiq::JobRetry::Handled
+      Sidekiq::JobRetry::Skip
       Sinatra::NotFound
       SignalException
       SystemExit
