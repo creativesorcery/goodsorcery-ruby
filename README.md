@@ -295,4 +295,4 @@ bin/console
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Created by [Philip Q Nguyen](https://github.com/philipqnguyen). MIT licensed; see [LICENSE](LICENSE).

@@ -5,7 +5,7 @@ require_relative "lib/goodsorcery/version"
 Gem::Specification.new do |spec|
   spec.name = "goodsorcery"
   spec.version = GoodSorcery::VERSION
-  spec.authors = ["Philip Nguyen"]
+  spec.authors = ["Philip Q Nguyen"]
   spec.email = ["5519675+philipqnguyen@users.noreply.github.com"]
 
   spec.summary = "Error reporting client for the Good Sorcery error tracker."
