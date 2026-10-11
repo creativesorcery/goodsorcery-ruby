@@ -294,6 +294,12 @@ bundle exec rubocop
 bin/console
 ```
 
+### Releasing
+
+1. Bump `GoodSorcery::VERSION` in `lib/goodsorcery/version.rb` and add a dated section to `CHANGELOG.md`.
+2. Commit both on `main`.
+3. Run `bundle exec rake release`. It refuses to run with uncommitted changes. It builds the gem into `pkg/`, tags `vX.Y.Z`, pushes the commit and the tag to GitHub and pushes the gem to RubyGems, asking for your MFA code.
+
 ## License
 
 Created by [Philip Q Nguyen](https://github.com/philipqnguyen). MIT licensed; see [LICENSE](LICENSE).
