@@ -49,7 +49,8 @@ module GoodSorcery
         Performance.with_recorder do |recorder|
           next if payload[:cached] || IGNORED_SQL_NAMES.include?(payload[:name])
 
-          recorder.add_sql(start, finish, payload[:sql], payload[:name], payload[:row_count]) do
+          recorder.add_sql(start, finish, payload[:sql], payload[:name], payload[:row_count],
+                           dialect: SqlDialect.for(payload[:connection])) do
             CallSite.capture(Performance.paths)
           end
         end

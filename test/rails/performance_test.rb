@@ -74,6 +74,13 @@ class RailsPerformanceTest < Minitest::Test
     assert(templates.any? { |template| template.start_with?("perf/_row") })
   end
 
+  def test_sql_is_normalised_in_the_dialect_of_its_connection
+    get("/perf/files")
+    query = trace("PerfController#files")["spans"].find { |span| span["type"] == "sql" }
+
+    assert_equal "SELECT * FROM files WHERE dir = ? AND token = ?", query["sql"]
+  end
+
   def test_a_raised_request_is_failed_with_status_500_and_links_its_error_event
     assert_equal 500, get("/perf/boom").status
     trace = trace("PerfController#boom")

@@ -50,22 +50,22 @@ module GoodSorcery
       # and enqueues are never grouped.
       def group_key(raw)
         case raw[0]
-        when :sql then [:sql, normalized(raw[3])]
+        when :sql then [:sql, normalized(raw)]
         when :view then [:view, template_name(raw[3])]
         end
       end
 
       def fields(raw)
         case raw[0]
-        when :sql then { "name" => Text.limit(raw[4] || "SQL", MAX_NAME_LENGTH), "sql" => normalized(raw[3]) }
+        when :sql then { "name" => Text.limit(raw[4] || "SQL", MAX_NAME_LENGTH), "sql" => normalized(raw) }
         when :view then { "template" => template_name(raw[3]) }
         when :http then http_fields(raw)
         else enqueue_fields(raw)
         end
       end
 
-      def normalized(sql)
-        @normalized[sql] ||= @context.normalizer.normalize(sql)
+      def normalized(raw)
+        (@normalized[raw[6]] ||= {})[raw[3]] ||= @context.normalizer.normalize(raw[3], raw[6])
       end
 
       def http_fields(raw)

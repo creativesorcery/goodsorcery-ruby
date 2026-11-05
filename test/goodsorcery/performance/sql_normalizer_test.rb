@@ -3,7 +3,9 @@
 require "test_helper"
 
 class SqlNormalizerTest < Minitest::Test
-  def normalize(sql) = GoodSorcery::Performance::SqlNormalizer.new.normalize(sql)
+  def normalize(sql, dialect = nil) = GoodSorcery::Performance::SqlNormalizer.new.normalize(sql, dialect)
+
+  TRAILING_BACKSLASH = "SELECT * FROM files WHERE dir = 'C:\\' AND token = 'hunter2secret' AND n = 5"
 
   def test_bind_placeholders_and_identifiers_stay
     sql = 'SELECT "users".* FROM "users" WHERE "users"."id" = $1 LIMIT $2'
@@ -17,7 +19,7 @@ class SqlNormalizerTest < Minitest::Test
   end
 
   def test_backslash_escaped_quotes_stay_inside_the_literal
-    assert_equal "SELECT ? FROM t WHERE a = ?", normalize("SELECT 'it\\'s secret' FROM t WHERE a = 'x'")
+    assert_equal "SELECT ? FROM t WHERE a = ?", normalize("SELECT 'it\\'s secret' FROM t WHERE a = 'x'", :mysql)
   end
 
   def test_dollar_quoted_strings_become_placeholders
@@ -38,7 +40,72 @@ class SqlNormalizerTest < Minitest::Test
 
   def test_quoted_identifiers_keep_digits_and_quotes
     assert_equal 'SELECT "2fa_codes"."it\'s" FROM "2fa_codes" WHERE id = ?',
-                 normalize('SELECT "2fa_codes"."it\'s" FROM "2fa_codes" WHERE id = 7')
+                 normalize('SELECT "2fa_codes"."it\'s" FROM "2fa_codes" WHERE id = 7', :postgres)
+  end
+
+  # Postgres (standard_conforming_strings) and SQLite: a backslash is an
+  # ordinary character, so 'C:\' ends at its second quote.
+  def test_a_trailing_backslash_does_not_hide_the_next_literal
+    expected = "SELECT * FROM files WHERE dir = ? AND token = ? AND n = ?"
+
+    assert_equal expected, normalize(TRAILING_BACKSLASH, :postgres)
+    assert_equal expected, normalize(TRAILING_BACKSLASH, :sqlite)
+  end
+
+  # With no dialect, a backslash in a string could be read either way, so
+  # nothing after that string is kept.
+  def test_with_an_unknown_dialect_everything_from_a_string_with_a_backslash_is_dropped
+    assert_equal "SELECT * FROM files WHERE dir = ?", normalize(TRAILING_BACKSLASH)
+    assert_equal "SELECT * FROM t WHERE a = ? AND b = ?", normalize("SELECT * FROM t WHERE a = 'x' AND b = 'C:\\'")
+  end
+
+  def test_postgres_escape_strings_honour_backslashes
+    assert_equal "SELECT ? WHERE a = ? AND b = ?",
+                 normalize("SELECT E'it\\'s secret' WHERE a = 'C:\\' AND b = 'secret'", :postgres)
+  end
+
+  def test_mysql_backslash_escapes
+    assert_equal "SELECT ? FROM t WHERE a = ? AND b = ?",
+                 normalize("SELECT 'it\\'s secret' FROM t WHERE a = 'C:\\\\' AND b = 'secret'", :mysql)
+  end
+
+  # A string left open at the end of a whole statement means the quotes
+  # were misread (a database setting the gem cannot see).
+  def test_a_misread_backslash_drops_everything_from_its_string
+    assert_equal "SELECT ?", normalize("SELECT 'it\\'s' FROM t WHERE a = 'x' AND b = 'secret'", :postgres)
+    assert_equal "SELECT * FROM files WHERE dir = ?", normalize(TRAILING_BACKSLASH, :mysql)
+  end
+
+  def test_a_statement_cut_inside_a_string_with_an_unknown_dialect_drops_everything_after_the_first_string
+    sql = "SELECT * FROM t WHERE a = 'C:\\' AND token = 'secret#{"x" * 5_000}'"
+
+    assert_equal "SELECT * FROM t WHERE a = ? AND token = ?", normalize(sql, :postgres)
+    assert_equal "SELECT * FROM t WHERE a = ?", normalize(sql)
+  end
+
+  def test_double_quoted_values_are_literals_in_mysql
+    assert_equal "SELECT `users`.* FROM `users` WHERE email = ? AND `users`.`id` = ?",
+                 normalize('SELECT `users`.* FROM `users` WHERE email = "bob@example.com" AND `users`.`id` = 4', :mysql)
+  end
+
+  def test_double_quoted_text_that_cannot_be_an_identifier_is_a_literal_unless_postgres
+    sql = 'SELECT "users".* FROM "users" WHERE "email" = "bob@example.com" AND "note" = "two words"'
+    guessed = 'SELECT "users".* FROM "users" WHERE "email" = ? AND "note" = ?'
+
+    assert_equal guessed, normalize(sql)
+    assert_equal guessed, normalize(sql, :sqlite)
+    assert_equal sql, normalize(sql, :postgres)
+  end
+
+  def test_dialects_from_the_connection_adapter
+    dialect = GoodSorcery::Performance::SqlDialect
+    adapter = Struct.new(:adapter_name)
+
+    assert_equal(%i[postgres postgres mysql mysql sqlite],
+                 %w[PostgreSQL PostGIS Mysql2 Trilogy SQLite].map { |name| dialect.from_name(name) })
+    assert_nil dialect.from_name("SQLServer")
+    assert_equal :mysql, dialect.for(adapter.new("Trilogy"))
+    assert_nil dialect.for(nil)
   end
 
   def test_in_lists_collapse

@@ -7,7 +7,7 @@ module GoodSorcery
     # span list. Spans are small arrays appended as events finish; nothing
     # is copied or normalised until a trace is built (DESIGN.md 8.3).
     #
-    #   [:sql, start, finish, sql, name, row_count]
+    #   [:sql, start, finish, sql, name, row_count, dialect]
     #   [:http, start, finish, method, host, path, status]
     #   [:view, start, finish, identifier]
     #   [:enqueue, start, finish, job_class, queue]
@@ -51,13 +51,13 @@ module GoodSorcery
       end
 
       # Yields once, the second time the same SQL text runs, for the call site.
-      def add_sql(start, finish, sql, name, rows, &)
+      def add_sql(start, finish, sql, name, rows, dialect: nil, &)
         @db_ms += (finish - start) * 1000.0
         @sql_count += 1
         return unless @spans
 
         @repeats.note(sql, &)
-        push([:sql, start, finish, sql, name, rows])
+        push([:sql, start, finish, sql, name, rows, dialect])
       end
 
       # +times+ is [start, finish].

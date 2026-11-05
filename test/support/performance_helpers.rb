@@ -43,8 +43,8 @@ module PerformanceHelpers
     recorder.started + (offset_ms / 1000.0)
   end
 
-  def add_sql(recorder, from_ms, to_ms, sql, name: "Product Load", rows: 1, &)
-    recorder.add_sql(at(recorder, from_ms), at(recorder, to_ms), sql, name, rows, &)
+  def add_sql(recorder, from_ms, to_ms, sql, name: "Product Load", rows: 1, dialect: nil, &)
+    recorder.add_sql(at(recorder, from_ms), at(recorder, to_ms), sql, name, rows, dialect: dialect, &)
   end
 
   def stop_at(recorder, duration_ms)

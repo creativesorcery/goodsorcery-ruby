@@ -287,7 +287,7 @@ def self.index(ms) = BOUNDS_MS.bsearch_index { _1 > ms } || 30
 
 1. Take the first 4,000 characters.
 2. Remove comments: `/* … */` (including Rails query-log and marginalia tags, which can carry request ids) and `-- …` to the end of the line.
-3. Replace dollar-quoted (`$$…$$`, `$tag$…$tag$`) and single-quoted strings (with `''` and `\'` escapes, and one cut off by the length cap) with `?`.
+3. Replace dollar-quoted (`$$…$$`, `$tag$…$tag$`) and single-quoted strings (with `''` escapes, and one cut off by the length cap) with `?`. Quoting follows the connection's dialect (`payload[:connection].adapter_name`, cached per adapter class): Postgres and SQLite treat a backslash as an ordinary character except in Postgres `E'…'` strings; MySQL/Trilogy honour `\'` escapes and read `"…"` as a string (backticks quote identifiers there); SQLite and an unknown adapter read `"…"` as a string when its contents could not be an unquoted identifier (spaces, `@`, …). The two ways of reading a backslash first disagree at a string that contains one, so with an unknown dialect, or when a string runs on to the end of a statement that was not cut off (a misread), everything from that string on becomes one `?`: a misread never leaves a value in the text.
 4. Replace numeric literals not part of an identifier or a `$n` placeholder with `?`.
 5. Collapse `IN (?, ?, …)` / `IN ($1, $2, …)` to `IN (…)`, and repeated `VALUES (…), (…)` rows to the first row followed by `, …`.
 6. Collapse whitespace and cap at 2,000 characters.

@@ -118,6 +118,14 @@ class PerfController < ActionController::Base
     head :service_unavailable
   end
 
+  # Literals written into the SQL, from a Postgres connection.
+  def files
+    connection = Struct.new(:adapter_name).new("PostgreSQL")
+    sql = "SELECT * FROM files WHERE dir = 'C:\\' AND token = 'hunter2secret'"
+    ActiveSupport::Notifications.instrument("sql.active_record", sql: sql, name: "File Load", connection: connection)
+    head :ok
+  end
+
   def inline_job
     GoodSorceryTestApp::PerfJob.perform_now
     GoodSorceryTestApp::PerfJob.perform_later
@@ -156,6 +164,7 @@ Rails.application.routes.draw do
   get "/perf/boom" => "perf#boom"
   get "/perf/unavailable" => "perf#unavailable"
   get "/perf/inline_job" => "perf#inline_job"
+  get "/perf/files" => "perf#files"
   get "/up" => "rails/health#show"
   post "/orders" => "orders#create"
   get "/orders/:id" => "orders#show"
