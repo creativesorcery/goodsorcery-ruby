@@ -44,6 +44,16 @@ module GoodSorcery
         false
       end
 
+      def boolean_setting(name)
+        define_method(:"#{name}=") do |value|
+          unless [true, false].include?(value)
+            raise ArgumentError, "#{name} must be true or false (got #{value.inspect})"
+          end
+
+          instance_variable_set(:"@#{name}", value)
+        end
+      end
+
       def choice_setting(name, choices)
         define_method(:"#{name}=") do |value|
           normalized = value.is_a?(String) ? value.to_sym : value

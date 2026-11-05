@@ -69,7 +69,19 @@ module GoodSorcery
     end
 
     def shutdown(timeout = config.shutdown_timeout)
+      Performance.shutdown(timeout)
       @delivery ? @delivery.shutdown(timeout) : true
+    end
+
+    # Whether performance monitoring may run (DESIGN.md 8.1): with the :test
+    # delivery, or a network delivery in an enabled environment with a key.
+    def performance_allowed?
+      return true if test_delivery?
+      return @gate.enabled? && !config.api_key.to_s.empty? if NETWORK_DELIVERIES.include?(config.delivery)
+
+      log.warn_once(:apm_custom_delivery,
+                    "performance monitoring needs the :async, :sync or :active_job delivery; it is off")
+      false
     end
 
     def verify
@@ -123,7 +135,9 @@ module GoodSorcery
       event = prepare_event(exception, options)
       return nil unless event
 
-      delivery.deliver(event) == false ? nil : event["event_id"]
+      event_id = delivery.deliver(event) == false ? nil : event["event_id"]
+      Performance.note_error(event_id)
+      event_id
     rescue StandardError => e
       log.error("notify failed with #{e.class}; the error was not reported")
       nil

@@ -51,6 +51,7 @@ require_relative "goodsorcery/delivery"
 require_relative "goodsorcery/verification"
 require_relative "goodsorcery/test_event"
 require_relative "goodsorcery/client"
+require_relative "goodsorcery/performance"
 require_relative "goodsorcery/rack/middleware"
 
 # Reports exceptions to a Good Sorcery error tracker. See README.md.
@@ -152,13 +153,29 @@ module GoodSorcery
       client.test_events
     end
 
+    # Also forgets the performance payloads kept by the :test delivery.
     def clear_test_events
+      Performance.clear_test_payloads
       client.clear_test_events
+    end
+
+    # Sends the recorded performance data now (with the :test delivery:
+    # builds it into test_performance_payloads). Never raises.
+    def flush_performance(include_open_minute: true)
+      Performance.flush_performance(include_open_minute: include_open_minute)
+    rescue StandardError
+      false
+    end
+
+    # [{ "path" => "/api/v1/apm/metrics", "body" => Hash }, ...] with the :test delivery.
+    def test_performance_payloads
+      Performance.test_payloads
     end
 
     # Forgets configuration, client and the current scope. For tests.
     def reset!
       shutdown(0.5)
+      Performance.reset!
       LOCK.synchronize do
         @client = nil
         @configuration = nil

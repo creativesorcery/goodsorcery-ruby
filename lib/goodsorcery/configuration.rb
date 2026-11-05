@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "configuration/validation"
+require_relative "configuration/performance_settings"
 
 module GoodSorcery
   # Every setting the gem reads (DESIGN.md 2 and 3). Unset credentials,
@@ -8,6 +9,7 @@ module GoodSorcery
   # environment variables (and Rails) when they are read.
   class Configuration
     extend Validation
+    include PerformanceSettings
 
     DELIVERIES = %i[async sync active_job test].freeze
     DELIVERY_SETTINGS = %i[
@@ -156,6 +158,7 @@ module GoodSorcery
       @install_check = :verify
       @report_handled_errors = true
       assign_capture_defaults
+      assign_performance_defaults
     end
 
     def assign_capture_defaults

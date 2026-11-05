@@ -36,6 +36,10 @@ module GoodSorcery
       SystemExit
     ].freeze
 
+    # Transactions (exact names or regexps) that performance monitoring
+    # never records. GoodSorcery::DeliveryJob is always skipped as well.
+    PERFORMANCE_IGNORE_TRANSACTIONS = ["Rails::HealthController#show"].freeze
+
     DISABLED_ENVIRONMENTS = %w[development test].freeze
     ENDPOINT = "https://app.goodsorcery.com"
   end

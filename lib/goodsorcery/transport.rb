@@ -52,6 +52,12 @@ module GoodSorcery
       send_request(Net::HTTP::Get.new(path(VERIFY_PATH), headers))
     end
 
+    # Sends one performance payload (DESIGN.md 8.7). The flusher decides
+    # what to do with the result and does the logging.
+    def post_apm(path_name, json)
+      send_request(post(path_name, json))
+    end
+
     def close
       @connection_lock.synchronize { @connection.close }
     end
@@ -111,8 +117,13 @@ module GoodSorcery
     end
 
     # The persistent connection serves one thread at a time; a concurrent
-    # caller (the :sync delivery in a busy app) gets a short-lived one.
+    # caller (the :sync delivery in a busy app) gets a short-lived one. The
+    # gem's own requests are never measured by performance monitoring.
     def perform(request)
+      Performance.suppress { perform_unmeasured(request) }
+    end
+
+    def perform_unmeasured(request)
       return Connection.new(@uri, **@timeouts).request_once(request) unless @connection_lock.try_lock
 
       begin

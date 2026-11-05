@@ -10,7 +10,8 @@ module GoodSorcery
     # "METHOD /path" breadcrumb and reports exceptions that propagate, then
     # re-raises them. Exceptions an inner layer turned into a 5xx response
     # (env["action_dispatch.exception"], env["sinatra.error"]) are reported
-    # too. The request itself is only read if an error is reported.
+    # too. The request itself is only read if an error is reported. With
+    # performance monitoring on, it also times the request (DESIGN.md 8.2).
     #
     #   use GoodSorcery::Rack::Middleware
     class Middleware
@@ -22,6 +23,14 @@ module GoodSorcery
       end
 
       def call(env)
+        return call_in_scope(env) unless Performance.active?
+
+        Performance.measure_request(env) { call_in_scope(env) }
+      end
+
+      private
+
+      def call_in_scope(env)
         GoodSorcery.with_scope do |scope|
           open_request(scope, env)
           response = call_app(env)
@@ -29,8 +38,6 @@ module GoodSorcery
           response
         end
       end
-
-      private
 
       def open_request(scope, env)
         scope.request_env = env
