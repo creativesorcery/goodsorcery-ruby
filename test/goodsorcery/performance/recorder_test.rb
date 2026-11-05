@@ -57,6 +57,39 @@ class RecorderTest < Minitest::Test
     assert_in_delta 10.0, recorder.db_ms, 0.001
   end
 
+  # A trace reads at most 4,000 characters of a statement; one more marks
+  # the text as cut.
+  def test_long_statements_are_kept_only_as_far_as_a_trace_reads_them
+    recorder = build_recorder
+    add_sql(recorder, 0, 1, "INSERT INTO t (a) VALUES #{"(1), " * 30_000}(1)")
+
+    assert_equal Performance::SqlNormalizer::INPUT_LIMIT + 1, recorder.spans.first[3].length
+  end
+
+  def test_sql_text_kept_per_unit_of_work_is_bounded
+    recorder = build_recorder
+    statement = "SELECT '#{"x" * 4_100}'"
+    1_500.times { |index| add_sql(recorder, index, index + 0.1, statement) }
+    kept = recorder.spans.size
+
+    assert_equal Performance::Recorder::MAX_SQL_BYTES / Performance::Recorder::MAX_SQL_CHARS, kept
+    assert_equal 1_500 - kept, recorder.spans_dropped
+    assert_equal 1_500, recorder.sql_count
+    assert_in_delta 150.0, recorder.db_ms, 0.01
+  end
+
+  def test_repeated_queries_keep_no_copy_of_the_sql_text
+    recorder = build_recorder
+    2.times { add_sql(recorder, 0, 1, "SELECT * FROM t WHERE id = 1") { :site } }
+    shapes = recorder.instance_variable_get(:@repeats).instance_variable_get(:@shapes)
+
+    assert(shapes.keys.all?(Integer))
+    broken = (+"SELECT \xFF 1").force_encoding(Encoding::UTF_8)
+    2.times { add_sql(recorder, 0, 1, broken) { :site } }
+
+    assert_equal 4, recorder.spans.size
+  end
+
   def test_status_and_failure
     recorder = build_recorder
     recorder.response_status = 503

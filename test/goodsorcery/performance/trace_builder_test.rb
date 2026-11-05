@@ -120,6 +120,24 @@ class TraceBuilderTest < Minitest::Test
     assert_equal CALL_LINE, recorder.call_site_for(PRODUCT_SQL).line
   end
 
+  # mysql2, trilogy and Postgres without prepared statements write the id
+  # into the SQL, so no two texts of an N+1 are the same.
+  def test_sql_with_inlined_ids_gets_its_call_site_on_the_second_run
+    recorder = build_recorder
+    captures = 0
+    12.times do |id|
+      add_sql(recorder, id, id + 0.5, "SELECT `products`.* FROM `products` WHERE `id` = #{id + 1} LIMIT 1") do
+        captures += 1
+        call_site
+      end
+    end
+    group = only(build(stop_at(recorder, 20))["spans"])
+
+    assert_equal 1, captures
+    assert_equal 12, group["count"]
+    assert_equal CALL_LINE, group["call_site"]["line"]
+  end
+
   def test_spans_are_capped_at_300_keeping_the_longest
     recorder = build_recorder
     320.times { |index| add_sql(recorder, index, index + (index == 5 ? 50 : 0.5), "SELECT #{index} FROM t#{index}") }

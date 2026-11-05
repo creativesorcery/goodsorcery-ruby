@@ -12,9 +12,15 @@ module GoodSorcery
     #   [:view, start, finish, identifier]
     #   [:enqueue, start, finish, job_class, queue]
     #
-    # Times are monotonic seconds.
+    # Times are monotonic seconds. A trace reads at most the first
+    # SqlNormalizer::INPUT_LIMIT characters of a statement, so only those
+    # (and one more, which tells the normaliser the text was cut) are kept,
+    # and at most MAX_SQL_BYTES of SQL text per unit of work; past either
+    # bound a span is only counted (spans_dropped).
     class Recorder
       MAX_RAW_SPANS = 2_000
+      MAX_SQL_CHARS = SqlNormalizer::INPUT_LIMIT + 1
+      MAX_SQL_BYTES = 4 * 1_024 * 1_024
       MAX_RENDER_DEPTH = 100
 
       attr_reader :kind, :started, :started_wall, :spans, :db_ms, :http_ms, :sql_count, :http_count,
@@ -27,7 +33,7 @@ module GoodSorcery
         @started = Performance.monotonic
         @started_wall = Process.clock_gettime(Process::CLOCK_REALTIME)
         @db_ms = @http_ms = @render_view_ms = 0.0
-        @sql_count = @http_count = @spans_dropped = 0
+        @sql_count = @http_count = @spans_dropped = @sql_bytes = 0
         @render_stack = []
         @failed = @broken = false
         start_trace if traces
@@ -50,11 +56,15 @@ module GoodSorcery
         @failed = true if status && status >= 500
       end
 
-      # Yields once, the second time the same SQL text runs, for the call site.
+      # Yields once, the second time SQL of the same shape runs (8.5), for
+      # the call site.
       def add_sql(start, finish, sql, name, rows, dialect: nil, &)
         @db_ms += (finish - start) * 1000.0
         @sql_count += 1
         return unless @spans
+
+        sql = kept_sql(sql)
+        return @spans_dropped += 1 unless sql
 
         @repeats.note(sql, &)
         push([:sql, start, finish, sql, name, rows, dialect])
@@ -115,6 +125,17 @@ module GoodSorcery
         @gc_start = GcSnapshot.take
       end
 
+      # The statement as the trace will read it, or nil when no more SQL text
+      # fits (or the span list is full).
+      def kept_sql(sql)
+        sql = sql.to_s
+        sql = sql[0, MAX_SQL_CHARS] if sql.bytesize > MAX_SQL_CHARS
+        return nil if @spans.size >= MAX_RAW_SPANS || @sql_bytes + sql.bytesize > MAX_SQL_BYTES
+
+        @sql_bytes += sql.bytesize
+        sql
+      end
+
       def push(span)
         if @spans.size < MAX_RAW_SPANS
           @spans << span
@@ -124,27 +145,35 @@ module GoodSorcery
       end
     end
 
-    # Remembers which raw SQL texts ran in one unit of work, and the call
-    # site of each text that ran at least twice (captured once).
+    # Remembers which shapes of SQL ran in one unit of work, and the call
+    # site of each shape that ran at least twice (captured once). The shape
+    # is the text without its digits, as an Integer hash: the same for
+    # "WHERE id = 7" and "WHERE id = 8", so adapters that write literal ids
+    # into the SQL still get a call site, and no copy of the text is kept.
     class RepeatedQueries
       MAX_TEXTS = 2_000
       SEEN_ONCE = true
 
+      def self.shape(sql)
+        (sql.valid_encoding? ? sql : sql.b).delete("0-9").hash
+      end
+
       def initialize
-        @texts = {}
+        @shapes = {}
       end
 
       def note(sql)
-        seen = @texts[sql]
+        key = self.class.shape(sql)
+        seen = @shapes[key]
         if seen.nil?
-          @texts[sql] = SEEN_ONCE if @texts.size < MAX_TEXTS
+          @shapes[key] = SEEN_ONCE if @shapes.size < MAX_TEXTS
         elsif seen == SEEN_ONCE
-          @texts[sql] = (block_given? && yield) || false
+          @shapes[key] = (block_given? && yield) || false
         end
       end
 
       def call_site(sql)
-        site = @texts[sql]
+        site = @shapes[self.class.shape(sql)]
         site.is_a?(CallSite) ? site : nil
       end
     end
