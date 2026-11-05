@@ -22,6 +22,10 @@ module GoodSorceryTestApp
   File.write(File.join(VIEWS, "perf/show.html.erb"),
              "<h1><%= @name %></h1><%= render partial: \"perf/row\", collection: [1, 2, 3] %>")
   File.write(File.join(VIEWS, "perf/_row.html.erb"), "<p><%= row %></p>")
+  # A template that runs a 40 ms query.
+  File.write(File.join(VIEWS, "perf/view_query.html.erb"),
+             "<% ActiveSupport::Notifications.instrument('sql.active_record', sql: 'SELECT 1', name: 'Load') " \
+             "{ sleep 0.04 } %>ok")
   File.write(File.join(VIEWS, "perf_mailer/notice.text.erb"), "Hello <%= @name %>")
 
   class OrderError < StandardError; end
@@ -118,6 +122,8 @@ class PerfController < ActionController::Base
     head :service_unavailable
   end
 
+  def view_query; end
+
   # Literals written into the SQL, from a Postgres connection.
   def files
     connection = Struct.new(:adapter_name).new("PostgreSQL")
@@ -165,6 +171,7 @@ Rails.application.routes.draw do
   get "/perf/unavailable" => "perf#unavailable"
   get "/perf/inline_job" => "perf#inline_job"
   get "/perf/files" => "perf#files"
+  get "/perf/view_query" => "perf#view_query"
   get "/up" => "rails/health#show"
   post "/orders" => "orders#create"
   get "/orders/:id" => "orders#show"

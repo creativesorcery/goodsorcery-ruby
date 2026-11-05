@@ -237,7 +237,7 @@ Requests that never reach a controller (routing 404s, assets, mounted Rack apps)
 
 - **Database:** the sum of `sql.active_record` durations, except `name` `SCHEMA`/`CACHE` and `payload[:cached]` (transaction statements count).
 - **External HTTP:** the sum of instrumented `Net::HTTP` calls (8.3).
-- **Views:** web: `process_action.action_controller`'s `payload[:view_runtime]` (Active Record already takes the queries run during rendering out of it). Jobs (mailers): the summed durations of the **outermost** `render_template` / `render_layout` / `render_partial` / `render_collection` `.action_view` events, minus the database time recorded while they were open, so nested renders are never counted twice.
+- **Views:** web requests and jobs (mailers) alike: the summed durations of the **outermost** `render_template` / `render_layout` / `render_partial` / `render_collection` `.action_view` events, minus the database and HTTP time recorded while they were open, so nested renders and the other layers are never counted twice. (`process_action`'s `payload[:view_runtime]` is not used: Active Record takes queries run during rendering out of it only when its logger is at info or below, it keeps only the last `render` call, and it includes HTTP calls made from templates. `render json:` without a template is Ruby time.)
 - **Ruby:** total − database − HTTP − views, **floored at 0** (overlap, such as an HTTP call made from a view, can make the others add up to more than the total).
 
 ### 8.3 Instrumentation
@@ -334,7 +334,7 @@ Files: `lib/goodsorcery/performance.rb` (module API: `install`, `recording?`, `s
 Required tests (Minitest, no network: the fake server and fake transport in `test/support`):
 - Histogram: the literal `BOUNDS_MS` (the same list as goodsorcery_web) and `index` at 0, 0.999, 1, 47,999, 48,000 and 10⁶.
 - Off by default: nothing subscribed, no thread, `Net::HTTP` not prepended; disabled environments and a missing key record nothing.
-- Rails dummy app: a request records name, method, route pattern, status, db and view time; a raised request counts as failed with status 500 and carries `error_event_id`; ignored transactions and routing 404s are not recorded; Ruby time is floored at 0.
+- Rails dummy app: a request records name, method, route pattern, status, db and view time (a query run from a template is database time only); a raised request counts as failed with status 500 and carries `error_event_id`; ignored transactions and routing 404s are not recorded; Ruby time is floored at 0.
 - Active Job and Sidekiq: name, adapter, queue, queue wait (also for scheduled jobs and Sidekiq 8 ms timestamps), failed attempts; an inline job inside a request is not a separate transaction.
 - Aggregation: buckets and layer sums per minute, the 500-name cap folding into `(other)`, the 5-minute bound.
 - SQL normaliser: strings (escaped quotes, dollar quotes, cut-off strings), numbers next to identifiers and `$n`, `IN` lists, `VALUES` rows, comments, whitespace, length caps.

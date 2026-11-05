@@ -74,6 +74,17 @@ class RailsPerformanceTest < Minitest::Test
     assert(templates.any? { |template| template.start_with?("perf/_row") })
   end
 
+  # The controller's view_runtime would count the template's query again
+  # (Active Record takes it out only when its logger is at info).
+  def test_a_query_run_from_a_template_is_database_time_not_view_time
+    get("/perf/view_query")
+    trace = trace("PerfController#view_query")
+
+    assert_operator trace["db_ms"], :>=, 40
+    assert_operator trace["view_ms"], :<, 40
+    assert_in_delta trace["duration_ms"], trace.values_at("db_ms", "http_ms", "view_ms", "ruby_ms").sum, 0.01
+  end
+
   def test_sql_is_normalised_in_the_dialect_of_its_connection
     get("/perf/files")
     query = trace("PerfController#files")["spans"].find { |span| span["type"] == "sql" }

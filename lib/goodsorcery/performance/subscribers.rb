@@ -62,7 +62,6 @@ module GoodSorcery
 
           controller = payload[:controller]
           recorder.name = "#{controller}##{payload[:action]}"
-          recorder.view_runtime = payload[:view_runtime]&.to_f
           recorder.route = RoutePattern.for(payload[:request])
           recorder.source = SourceLocation.for(controller)
         end

@@ -26,7 +26,7 @@ module GoodSorcery
       attr_reader :kind, :started, :started_wall, :spans, :db_ms, :http_ms, :sql_count, :http_count,
                   :spans_dropped, :duration_ms, :finished_wall, :gc
       attr_accessor :name, :http_method, :route, :source, :adapter, :queue, :queue_wait_ms, :status,
-                    :error_event_id, :view_runtime, :env, :job_details
+                    :error_event_id, :env, :job_details
 
       def initialize(kind, traces:)
         @kind = kind
@@ -83,19 +83,22 @@ module GoodSorcery
       end
 
       def render_started(now)
-        @render_stack.push([now, @db_ms]) if @render_stack.size < MAX_RENDER_DEPTH
+        @render_stack.push([now, @db_ms + @http_ms]) if @render_stack.size < MAX_RENDER_DEPTH
       end
 
       # Only the outermost render counts toward view time, minus the queries
-      # run while it was open, so nested renders are never counted twice.
+      # and HTTP calls made while it was open, so nested renders and the
+      # other layers are never counted twice. Every render of the unit of
+      # work adds up (render_to_string, then render).
       def render_finished(now, identifier)
-        start, db_at_start = @render_stack.pop
+        start, others_at_start = @render_stack.pop
         return unless start
 
         push([:view, start, now, identifier]) if @spans
         return unless @render_stack.empty?
 
-        @render_view_ms += [((now - start) * 1000.0) - (@db_ms - db_at_start), 0.0].max
+        others = @db_ms + @http_ms - others_at_start
+        @render_view_ms += [((now - start) * 1000.0) - others, 0.0].max
       end
 
       def call_site_for(sql)
@@ -108,10 +111,10 @@ module GoodSorcery
         @gc = @gc_start&.delta
       end
 
-      # Web requests use the controller's view_runtime when Rails gave one.
-      def view_ms
-        @view_runtime || @render_view_ms
-      end
+      # Web requests too: the controller's view_runtime includes queries run
+      # from templates whenever Active Record's logger is above info, keeps
+      # only the last render and includes HTTP calls made while rendering.
+      def view_ms = @render_view_ms
 
       def ruby_ms
         [@duration_ms - @db_ms - @http_ms - view_ms, 0.0].max

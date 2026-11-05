@@ -7,7 +7,8 @@ class RecorderTest < Minitest::Test
     recorder = build_recorder
     add_sql(recorder, 0, 30, "SELECT 1")
     recorder.add_http([at(recorder, 40), at(recorder, 60)], "GET", "h", "/", 200)
-    recorder.view_runtime = 25.0
+    recorder.render_started(at(recorder, 70))
+    recorder.render_finished(at(recorder, 95), "show")
     stop_at(recorder, 100)
 
     assert_in_delta 30.0, recorder.db_ms, 0.001
@@ -18,10 +19,11 @@ class RecorderTest < Minitest::Test
     assert_equal 1, recorder.http_count
   end
 
+  # Queries run in parallel (load_async) can add up to more than the total.
   def test_ruby_is_floored_at_zero
     recorder = build_recorder
     recorder.add_http([at(recorder, 0), at(recorder, 80)], "GET", "h", "/", 200)
-    recorder.view_runtime = 50.0
+    add_sql(recorder, 0, 80, "SELECT 1")
     stop_at(recorder, 100)
 
     assert_in_delta 0.0, recorder.ruby_ms
@@ -45,6 +47,24 @@ class RecorderTest < Minitest::Test
     assert_in_delta 35.0, recorder.view_ms, 0.001
     assert_in_delta 10.0, recorder.db_ms, 0.001
     assert_in_delta 55.0, recorder.ruby_ms, 0.001
+  end
+
+  # A web request's view time comes from the same render events: every
+  # render adds up, and an HTTP call made from a template is HTTP time only.
+  def test_web_view_time_sums_renders_without_their_queries_or_http_calls
+    recorder = build_recorder
+    recorder.render_started(at(recorder, 10))
+    add_sql(recorder, 12, 22, "SELECT 1")
+    recorder.render_finished(at(recorder, 30), "render_to_string")
+    recorder.render_started(at(recorder, 40))
+    recorder.add_http([at(recorder, 45), at(recorder, 60)], "GET", "h", "/", 200)
+    recorder.render_finished(at(recorder, 70), "show")
+    stop_at(recorder, 100)
+
+    assert_in_delta 25.0, recorder.view_ms, 0.001
+    assert_in_delta 10.0, recorder.db_ms, 0.001
+    assert_in_delta 15.0, recorder.http_ms, 0.001
+    assert_in_delta 50.0, recorder.ruby_ms, 0.001
   end
 
   def test_without_traces_only_totals_are_kept
