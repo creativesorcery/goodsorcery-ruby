@@ -32,7 +32,12 @@ module GoodSorcery
         def call(worker, job, queue, &)
           return yield if Sidekiq.active_job_wrapper?(job)
 
-          Integrations.run_unit_of_work(JobDetails.new(job, queue: queue, worker: worker), &)
+          details = JobDetails.new(job, queue: queue, worker: worker)
+          return Integrations.run_unit_of_work(details, &) unless Performance.active?
+
+          Performance.measure_job(Performance::SidekiqTiming.new(job, queue, worker)) do
+            Integrations.run_unit_of_work(details, &)
+          end
         end
       end
 

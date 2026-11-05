@@ -31,13 +31,14 @@ module GoodSorcery
       end
 
       # After the app's initializers ran: subscribe to Rails.error and to
-      # notifications, hook Sidekiq, and recompile the filters so the final
-      # filter_parameters apply.
+      # notifications, hook Sidekiq, recompile the filters so the final
+      # filter_parameters apply, and start performance monitoring if it is on.
       def after_initialize
         subscribe_to_error_reporter
         NotificationBreadcrumbs.subscribe if GoodSorcery.configuration.breadcrumbs
         install_sidekiq if defined?(::Sidekiq)
         GoodSorcery.client.reconfigure(rebuild_delivery: false)
+        GoodSorcery::Performance.install if GoodSorcery.configuration.performance_monitoring
       end
 
       def subscribe_to_error_reporter

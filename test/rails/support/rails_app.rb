@@ -14,6 +14,16 @@ module GoodSorceryTestApp
   REVISION = "4f2a9c1e"
   File.write(File.join(ROOT, "REVISION"), "#{REVISION}\n")
 
+  # Templates for the performance tests (written before boot, so the view
+  # path exists).
+  VIEWS = File.join(ROOT, "app/views")
+  FileUtils.mkdir_p(File.join(VIEWS, "perf"))
+  FileUtils.mkdir_p(File.join(VIEWS, "perf_mailer"))
+  File.write(File.join(VIEWS, "perf/show.html.erb"),
+             "<h1><%= @name %></h1><%= render partial: \"perf/row\", collection: [1, 2, 3] %>")
+  File.write(File.join(VIEWS, "perf/_row.html.erb"), "<p><%= row %></p>")
+  File.write(File.join(VIEWS, "perf_mailer/notice.text.erb"), "Hello <%= @name %>")
+
   class OrderError < StandardError; end
   class HandledError < StandardError; end
 
@@ -90,7 +100,63 @@ class OrdersController < ActionController::Base
   end
 end
 
+# Controller for the performance tests (test/rails/performance_test.rb).
+class PerfController < ActionController::Base
+  def show
+    2.times { product_query }
+    ActiveSupport::Notifications.instrument("sql.active_record", sql: "PRAGMA table_info", name: "SCHEMA")
+    ActiveSupport::Notifications.instrument("sql.active_record", sql: "SELECT 1", name: "CACHE", cached: true)
+    @name = "Lamp"
+    render :show
+  end
+
+  def boom
+    raise GoodSorceryTestApp::OrderError, "perf boom"
+  end
+
+  def unavailable
+    head :service_unavailable
+  end
+
+  def inline_job
+    GoodSorceryTestApp::PerfJob.perform_now
+    GoodSorceryTestApp::PerfJob.perform_later
+    head :ok
+  end
+
+  private
+
+  def product_query
+    ActiveSupport::Notifications.instrument("sql.active_record", sql: "SELECT * FROM products WHERE id = 1",
+                                                                 name: "Product Load", row_count: 1)
+  end
+end
+
+module GoodSorceryTestApp
+  class PerfJob < ActiveJob::Base
+    queue_as :billing
+
+    def perform
+      ActiveSupport::Notifications.instrument("sql.active_record", sql: "UPDATE t SET a = 1", name: "T Update")
+    end
+  end
+
+  class PerfMailer < ActionMailer::Base
+    default from: "app@example.com"
+
+    def notice
+      @name = "Mara"
+      mail(to: "m@example.com", subject: "Hi", template_path: "perf_mailer")
+    end
+  end
+end
+
 Rails.application.routes.draw do
+  get "/perf/products/:id" => "perf#show"
+  get "/perf/boom" => "perf#boom"
+  get "/perf/unavailable" => "perf#unavailable"
+  get "/perf/inline_job" => "perf#inline_job"
+  get "/up" => "rails/health#show"
   post "/orders" => "orders#create"
   get "/orders/:id" => "orders#show"
   get "/handled" => "orders#handled"

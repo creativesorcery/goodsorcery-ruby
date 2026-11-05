@@ -48,6 +48,13 @@ GoodSorcery.configure do |config|
   # config.breadcrumbs = true
   # config.max_breadcrumbs = 40
 
+  # --- Performance monitoring --------------------------------------------------
+  # Off by default. Records every request and job and sends the slowest
+  # requests' timelines once a minute (also ENV["GOODSORCERY_PERFORMANCE_MONITORING"]=1).
+  # config.performance_monitoring = true
+  # config.performance_traces = true                     # false = metrics only, no traces
+  # config.performance_ignore_transactions += ["HealthController#show", /\AAdmin::/]
+
   # --- Development -----------------------------------------------------------
   # config.install_check = :verify                       # after bundle install: :verify, :test_event or false
   # config.logger = Rails.logger
