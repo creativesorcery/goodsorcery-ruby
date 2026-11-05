@@ -124,6 +124,14 @@ class PerfController < ActionController::Base
 
   def view_query; end
 
+  def lookup
+    params.require(:sku)
+  end
+
+  def gone
+    raise ActionController::RoutingError, "no such product"
+  end
+
   # Literals written into the SQL, from a Postgres connection.
   def files
     connection = Struct.new(:adapter_name).new("PostgreSQL")
@@ -172,6 +180,8 @@ Rails.application.routes.draw do
   get "/perf/inline_job" => "perf#inline_job"
   get "/perf/files" => "perf#files"
   get "/perf/view_query" => "perf#view_query"
+  get "/perf/lookup" => "perf#lookup"
+  get "/perf/gone" => "perf#gone"
   get "/up" => "rails/health#show"
   post "/orders" => "orders#create"
   get "/orders/:id" => "orders#show"

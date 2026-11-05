@@ -45,10 +45,14 @@ module GoodSorcery
       def failed! = (@failed = true)
       def broken! = (@broken = true)
 
-      # An exception escaped the unit of work.
-      def raised!
-        @failed = true
-        @status = 500 if @kind == :web
+      # An exception escaped the unit of work. A request fails only when the
+      # exception becomes a 5xx (+status+ is what Rails answers it with; 500
+      # when unknown): a RecordNotFound is a 404, not a failure.
+      def raised!(status = nil)
+        return @failed = true unless @kind == :web
+
+        @status = status || 500
+        @failed = @status >= 500
       end
 
       def response_status=(status)

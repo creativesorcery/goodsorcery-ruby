@@ -120,6 +120,11 @@ class RecorderTest < Minitest::Test
 
     assert_equal 500, recorder.status
     assert recorder.failed?
+    recorder = build_recorder
+    recorder.raised!(404)
+
+    assert_equal 404, recorder.status
+    refute recorder.failed?
     job = build_recorder(:job)
     job.raised!
 

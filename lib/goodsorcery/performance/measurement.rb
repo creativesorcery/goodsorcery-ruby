@@ -16,8 +16,8 @@ module GoodSorcery
         response = yield
         recorder.response_status = response.first.to_i if response.is_a?(Array)
         response
-      rescue Exception # rubocop:disable Lint/RescueException
-        recorder&.raised!
+      rescue Exception => e # rubocop:disable Lint/RescueException
+        recorder&.raised!(exception_status(e))
         raise
       ensure
         finish(recorder) if recorder
@@ -73,6 +73,19 @@ module GoodSorcery
       end
 
       private
+
+      # The status Rails' ShowExceptions answers an escaping exception with
+      # (404 for ActiveRecord::RecordNotFound, 400 for ParameterMissing…);
+      # nil outside Rails.
+      def exception_status(error)
+        return nil unless defined?(::ActionDispatch::ExceptionWrapper)
+
+        template_error = defined?(::ActionView::Template::Error) && error.is_a?(::ActionView::Template::Error)
+        error = error.cause || error if template_error
+        ::ActionDispatch::ExceptionWrapper.status_code_for_exception(error.class.name)
+      rescue StandardError
+        nil
+      end
 
       def label_job(recorder, timing)
         timing.label(recorder)

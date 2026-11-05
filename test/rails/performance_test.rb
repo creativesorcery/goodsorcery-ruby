@@ -101,6 +101,18 @@ class RailsPerformanceTest < Minitest::Test
     assert_equal GoodSorcery.test_events.first["event_id"], trace["error_event_id"]
   end
 
+  # Exceptions Rails answers with a 4xx (RecordNotFound, ParameterMissing…)
+  # are what the user got: not failed, and with that status.
+  def test_an_exception_rails_turns_into_a_4xx_is_not_failed
+    assert_equal 400, get("/perf/lookup").status
+    assert_equal 404, get("/perf/gone").status
+
+    assert_equal [1, 0], transaction("PerfController#lookup").values_at("count", "failed")
+    assert_equal [1, 0], transaction("PerfController#gone").values_at("count", "failed")
+    assert_equal [400, false], trace("PerfController#lookup").values_at("status", "failed")
+    assert_equal [404, false], trace("PerfController#gone").values_at("status", "failed")
+  end
+
   def test_a_5xx_response_is_failed
     get("/perf/unavailable")
 
