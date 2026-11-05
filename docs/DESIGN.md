@@ -260,7 +260,7 @@ When a unit of work finishes, `Performance.finish(recorder)` hands its numbers t
 
 ### 8.5 Traces: slowest per transaction per minute
 
-Every recorded unit of work keeps its raw span list until it finishes. Then the **`TraceBuffer`** (per process, `Mutex`) decides cheaply whether it is the slowest so far for `[minute, kind, name]`: if not, the spans are discarded with no further work (the common case). If it is, **`TraceBuilder`** builds the trace **outside the lock** and the buffer swaps it in if it is still the slowest. There is **no duration floor**: a fast endpoint still gets its slowest trace. The buffer holds at most `MAX_TRACES_PER_MINUTE` (30) traces per minute: when full, a trace for a new key replaces the fastest one held only if it is slower. A flush sends at most 50 (server limit) traces.
+Every recorded unit of work keeps its raw span list until it finishes. Then the **`TraceBuffer`** (per process, `Mutex`) decides cheaply whether it is the slowest so far for `[minute, kind, name]`: if not, the spans are discarded with no further work (the common case). If it is, **`TraceBuilder`** builds the trace **outside the lock** and the buffer swaps it in if it is still the slowest. There is **no duration floor**: a fast endpoint still gets its slowest trace. The buffer holds at most `MAX_TRACES_PER_MINUTE` (30) traces per minute: when full, a trace for a new key replaces the fastest one held only if it is slower. A flush sends every trace it collects, at most 50 (the server's limit) per body.
 
 `TraceBuilder` turns raw spans into the payload's `spans` (INGEST_API.md › Traces payload):
 
@@ -298,7 +298,7 @@ Placeholders such as `$1` (Postgres prepared statements) and identifiers stay re
 
 - **`Performance::Flusher`**, one thread per process (`goodsorcery-apm`), started lazily on the first recorded unit of work. It wakes once a minute at the minute boundary plus a per-process random offset of 2–20 seconds (spreading the server's load), takes every **closed** minute from the Aggregator and TraceBuffer, and sends:
   1. `POST /api/v1/apm/metrics` with the closed minutes (≤ 5), and
-  2. `POST /api/v1/apm/traces` with their traces (≤ 50, slowest first), if any.
+  2. `POST /api/v1/apm/traces` with their traces (slowest first, ≤ 50 per body), if any.
 - **Transport reuse:** both go through the client's existing `Transport` (keep-alive connection, gzip at ≥ 1 KiB, Bearer key, masked-key logging), with a new `#post_apm(path, json)` returning a `Transport::Result`. The persistent connection is shared with the error worker under the existing lock; a concurrent caller gets a short-lived connection as today.
 - **Retries:** each payload gets a UUIDv7 `batch_id` when it is first built and keeps it on every retry (the server counts a batch once). `429` waits for `Retry-After`; `5xx`/network errors keep the payload for the next wake; payloads still unsent after 3 attempts, or pushed out by the 5-minute bound, are dropped and counted (logged at most once a minute). `400`/`401`/`413`/`415`/`422` drop the payload (a warning once a minute). `404` means the server has no APM endpoints: log once ("the server has no performance endpoints; performance monitoring is off") and stop recording in this process.
 - **Exit:** `GoodSorcery.shutdown` (the existing `at_exit` hook) also flushes all minutes, including the open one (additive merging makes a partial minute safe), within `shutdown_timeout`.

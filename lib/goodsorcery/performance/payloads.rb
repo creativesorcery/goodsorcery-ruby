@@ -12,7 +12,6 @@ module GoodSorcery
       METRICS_MAX_BYTES = 450 * 1_024
       TRACES_MAX_BYTES = 1_800 * 1_024
       MAX_TRANSACTIONS_PER_MINUTE = 1_000
-      MAX_TRACES = 50
       MAX_TRACES_PER_PAYLOAD = 50
 
       # One JSON body with its path and how many minutes it carries.
@@ -31,10 +30,12 @@ module GoodSorcery
         chunks.bodies
       end
 
-      # At most MAX_TRACES traces (the slowest, as TraceBuffer#take orders
-      # them), as few bodies as the size limit allows.
+      # Every trace (slowest first, as TraceBuffer#take orders them), in as
+      # few bodies as the size limit and the server's 50 traces per body
+      # allow. A flush can carry more than one minute (the exit flush adds
+      # the open one); the Outbox bounds how many bodies wait.
       def traces(traces)
-        jsons = traces.first(MAX_TRACES).map { |trace| JSON.generate(trace) }
+        jsons = traces.map { |trace| JSON.generate(trace) }
         Packer.pack(jsons, TRACES_MAX_BYTES, MAX_TRACES_PER_PAYLOAD).map do |chunk|
           Body.new(TRACES_PATH, envelope("traces" => "[#{chunk.join(",")}]"), 0)
         end

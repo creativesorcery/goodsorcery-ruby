@@ -65,7 +65,7 @@ class PayloadsTest < Minitest::Test
     bodies = Payloads.traces(traces)
     parsed = bodies.map { |body| JSON.parse(body.json) }
 
-    assert_equal(50, parsed.sum { |body| body["traces"].size })
+    assert_equal(60, parsed.sum { |body| body["traces"].size })
     assert_equal "t0", parsed.first["traces"].first["id"]
     parsed.each do |body|
       assert_equal %w[batch_id notifier traces], body.keys
@@ -75,6 +75,14 @@ class PayloadsTest < Minitest::Test
       assert_equal "/api/v1/apm/traces", body.path
       assert_operator body.json.bytesize, :<=, 2 * 1_024 * 1_024
     end
+  end
+
+  # Two full minutes (the exit flush includes the open one) are 60 traces.
+  def test_no_trace_is_dropped_when_a_flush_carries_more_than_fifty
+    traces = Array.new(60) { |index| { "id" => "t#{index}" } }
+    sizes = Payloads.traces(traces).map { |body| JSON.parse(body.json)["traces"].size }
+
+    assert_equal [50, 10], sizes
   end
 
   def sole_body(bodies)
