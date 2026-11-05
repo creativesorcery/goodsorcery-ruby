@@ -166,6 +166,17 @@ class TraceBuilderTest < Minitest::Test
                    "queue" => "critical" }, round(spans[2]))
   end
 
+  def test_an_http_path_given_as_a_whole_url_keeps_only_its_path
+    recorder = build_recorder
+    paths = ["https://user:pass@api.example.com/v1/charges?key=s3cret", "//user:pass@api.example.com", "HTTP://u:p@h"]
+    paths.each_with_index do |path, index|
+      recorder.add_http([at(recorder, index), at(recorder, index + 1)], "GET", "h", path, 200)
+    end
+    spans = build(stop_at(recorder, 10))["spans"]
+
+    assert_equal(["/v1/charges", "/", "/"], spans.map { |span| span["path"] })
+  end
+
   def test_repeated_renders_of_a_template_are_grouped
     recorder = build_recorder
     3.times do |index|

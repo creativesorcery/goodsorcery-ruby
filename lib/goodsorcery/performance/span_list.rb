@@ -11,6 +11,9 @@ module GoodSorcery
       MAX_NAME_LENGTH = 255
       MAX_PATH_LENGTH = 1_024
       VIEWS_DIR = "/app/views/"
+      # A path given as an absolute URL ("https://user:pass@host/v1") or a
+      # network-path reference ("//host/v1"): its scheme and authority.
+      URL_PREFIX = %r{\A(?:[a-z][a-z0-9+.-]*:)?//[^/?#]*}i
 
       attr_reader :dropped
 
@@ -68,8 +71,10 @@ module GoodSorcery
         (@normalized[raw[6]] ||= {})[raw[3]] ||= @context.normalizer.normalize(raw[3], raw[6])
       end
 
+      # Method, host and path only: never a query string, fragment or
+      # userinfo, even when the app passed a whole URL as the path.
       def http_fields(raw)
-        path = raw[5].to_s.split(/[?#]/, 2).first.to_s
+        path = raw[5].to_s.sub(URL_PREFIX, "").split(/[?#]/, 2).first.to_s
         { "method" => Text.limit(raw[3], 16), "host" => Text.limit(raw[4], MAX_NAME_LENGTH),
           "path" => Text.limit(path.empty? ? "/" : path, MAX_PATH_LENGTH), "status" => raw[6] }.compact
       end

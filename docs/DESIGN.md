@@ -323,7 +323,7 @@ A benchmark task (`bin/rake bench:performance`, not run in CI) measures a dummy 
 ### 8.9 Privacy rules
 
 - **Metrics carry no captured data:** transaction names, route patterns (never real paths), adapter, queue, source file and numbers only.
-- **Traces carry no params, headers, cookies, session, bodies, query strings, userinfo or job arguments.** SQL is normalised (8.6) so literal values never leave the process; HTTP spans are method + host + path; the request is method + path (no query string) + request id; code context only with `send_code_context`.
+- **Traces carry no params, headers, cookies, session, bodies, query strings, userinfo or job arguments.** SQL is normalised (8.6) so literal values never leave the process; HTTP spans are method + host + path (a whole URL passed as the path keeps only its path); the request is method + path (no query string) + request id; code context only with `send_code_context`.
 - `before_send` and `filter_params` do not apply (there are no key/value data to filter); the allow-list above is the protection. The server scrubs again and stores traces encrypted.
 - The gem's log lines name classes, counts and statuses only, never SQL, paths or host names.
 
