@@ -30,7 +30,7 @@ module GoodSorcery
         attr_accessor :config
 
         def call(worker, job, queue, &)
-          return yield if Sidekiq.active_job_wrapper?(job)
+          return wrapped(job, &) if Sidekiq.active_job_wrapper?(job)
 
           details = JobDetails.new(job, queue: queue, worker: worker)
           return Integrations.run_unit_of_work(details, &) unless Performance.active?
@@ -38,6 +38,17 @@ module GoodSorcery
           Performance.measure_job(Performance::SidekiqTiming.new(job, queue, worker)) do
             Integrations.run_unit_of_work(details, &)
           end
+        end
+
+        private
+
+        # A Sidekiq retry runs an Active Job with its original job data, so
+        # its enqueued_at is the first enqueue; Sidekiq's own enqueued_at is
+        # when the retry was queued, which the queue wait is measured from.
+        def wrapped(job, &)
+          return yield unless Performance.active? && job.key?("retry_count")
+
+          Performance::ActiveJobTiming.requeued_at(job["enqueued_at"], &)
         end
       end
 

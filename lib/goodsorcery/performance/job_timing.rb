@@ -38,6 +38,19 @@ module GoodSorcery
 
     # An Active Job execution (any adapter).
     class ActiveJobTiming < JobTiming
+      REQUEUED_AT_KEY = :__goodsorcery_requeued_at
+
+      # While the block runs, jobs wait from +time+: when the adapter queued
+      # this run again without updating the job's own enqueued_at (a Sidekiq
+      # retry).
+      def self.requeued_at(time)
+        previous = Thread.current[REQUEUED_AT_KEY]
+        Thread.current[REQUEUED_AT_KEY] = time
+        yield
+      ensure
+        Thread.current[REQUEUED_AT_KEY] = previous
+      end
+
       def initialize(job)
         super()
         @job = job
@@ -57,6 +70,9 @@ module GoodSorcery
       private
 
       def queued_since
+        requeued = Thread.current[REQUEUED_AT_KEY]
+        return requeued if requeued
+
         scheduled = @job.respond_to?(:scheduled_at) ? @job.scheduled_at : nil
         scheduled || @job.enqueued_at
       end

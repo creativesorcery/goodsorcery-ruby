@@ -68,6 +68,36 @@ class SidekiqPerformanceTest < Minitest::Test
     assert_equal GoodSorcery.test_events.first["event_id"], recorded_traces.first["error_event_id"]
   end
 
+  # What the Active Job layer sees: a job whose enqueued_at is the first
+  # enqueue, an hour ago.
+  class RetriedActiveJob
+    def self.name = "RetriedActiveJob"
+    def queue_name = "default"
+    def enqueued_at = Time.now - 3_600
+    def scheduled_at = nil
+    def executions = 1
+  end
+
+  def run_wrapped_job(job)
+    run_job(job) do
+      Performance.measure_job(Performance::ActiveJobTiming.new(RetriedActiveJob.new)) { :ok }
+    end
+  end
+
+  # Sidekiq retried the Active Job: its own enqueued_at is the requeue.
+  def test_a_retried_active_job_waits_from_its_requeue
+    run_wrapped_job(job_hash("wrapped" => "RetriedActiveJob", "retry_count" => 0, "enqueued_at" => Time.now.to_f - 1.5))
+
+    assert_in_delta 1_500, metrics_transactions.first["queue_wait_ms"], 200
+    assert_nil Thread.current[Performance::ActiveJobTiming::REQUEUED_AT_KEY]
+  end
+
+  def test_a_first_run_active_job_waits_from_its_own_enqueue
+    run_wrapped_job(job_hash("wrapped" => "RetriedActiveJob", "enqueued_at" => Time.now.to_f - 1.5))
+
+    assert_in_delta 3_600_000, metrics_transactions.first["queue_wait_ms"], 2_000
+  end
+
   def test_jobs_wrapped_by_active_job_are_left_to_the_active_job_layer
     run_job(job_hash("wrapped" => "SomeJob"))
 
