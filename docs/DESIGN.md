@@ -196,3 +196,146 @@ GoodSorcery.test_events / GoodSorcery.clear_test_events        # with delivery :
 - `GET /api/v1/verify`: authenticates the key (same rate limiting by IP and key) and returns `200 {"ok":true,"environment":"staging"}` without creating anything. Used by the install check.
 - **`job` payload section.** The ingest payload gains a top-level `job` object (the fields in §5.1; unknown keys dropped, `arguments` bounded like `request.params`, scrubbed by key like params, stored **encrypted** with the occurrence). The issue page gets a **Job** tab next to Request/Params/Headers/Session/Environment showing the job fields and its arguments as JSON (muted `[FILTERED]`, like Params). It shows "No job was captured with this occurrence." when absent. `docs/INGEST_API.md` documents the field and its limits.
 
+
+## 8. Performance monitoring
+
+Approved 2026-11-04. A simple APM for Rails apps: **metrics** for every web request and background job, and **traces** (timelines) of a few slow requests. No logs, no distributed tracing, no custom instrumentation API. The wire format is `goodsorcery_web/docs/INGEST_API.md` › Performance monitoring; the server side is `goodsorcery_web/docs/ARCHITECTURE.md` §13. Like error reporting, it **never raises into the host app**, keeps memory bounded and is fork-safe.
+
+### 8.1 Configuration
+
+Off by default (opt-in):
+
+```ruby
+GoodSorcery.configure do |config|
+  config.performance_monitoring = true    # default false; also ENV["GOODSORCERY_PERFORMANCE_MONITORING"]=1/0
+  # config.performance_traces = true      # send slow-request traces (default true while monitoring is on)
+  # config.performance_ignore_transactions += ["HealthController#show", /\AAdmin::/]
+end
+```
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `performance_monitoring` | `false` (or `GOODSORCERY_PERFORMANCE_MONITORING`) | Records metrics for every request and job and flushes them once a minute. Read at `after_initialize`; turning it on later needs a restart. |
+| `performance_traces` | `true` | Also records timelines and sends the slowest per transaction per minute. `false` sends metrics only. |
+| `performance_ignore_transactions` | `["Rails::HealthController#show"]` | Names (exact strings) or regexps never recorded, neither metrics nor traces. `GoodSorcery::DeliveryJob` is always ignored. |
+
+Performance monitoring obeys the same gate as errors (`GoodSorcery.enabled?`, §3.2) and needs an API key: in a disabled environment nothing is subscribed, no thread starts and the per-request cost is one boolean check. `send_code_context` (§3) also governs the code lines sent with N+1 call sites. The `:test` delivery keeps payloads in memory instead of sending them (8.7). The generator's initializer template gains the two commented lines above, and goodsorcery_web's setup page shows the same snippet.
+
+### 8.2 What is measured
+
+**Transactions** (one per unit of work, `GoodSorcery::Performance::Recorder`, fiber-local like `Scope`):
+
+| Layer | Hook | Name | Labels | Total duration | Failed |
+|---|---|---|---|---|---|
+| Web (Rails) | the existing Rack middleware wraps `@app.call(env)` (monotonic clock); the name comes from `process_action.action_controller` | `Controller#action` | `method` (`REQUEST_METHOD`), `route` (`request.route_uri_pattern` minus `(.:format)`, Rails ≥ 7.1; omitted on older Rails), `source` (`Object.const_source_location(controller)`, app-relative, cached per class) | middleware entry to `call` returning (a streamed body's iteration is not included) | status ≥ 500, or an exception escaped |
+| Active Job | the existing `perform_now` prepend | the job class (`ActionMailer::MailDeliveryJob` for `deliver_later`) | `adapter` (`job.class.queue_adapter_name`), `queue`; queue wait = start − (`scheduled_at` or `enqueued_at`) | the `perform_now` call | an exception escaped (each attempt counts) |
+| Sidekiq (not wrapped by Active Job) | the existing server middleware | the worker class | `adapter: "sidekiq"`, `queue`; wait from `job["enqueued_at"]` (float seconds, or integer ms on Sidekiq ≥ 8) | the middleware `yield` | an exception escaped |
+
+Requests that never reach a controller (routing 404s, assets, mounted Rack apps) are not recorded. A unit of work started while another is recording (a job run inline with `perform_now` inside a request) is part of the outer one, not a transaction of its own.
+
+**Layers** per transaction, in milliseconds:
+
+- **Database:** the sum of `sql.active_record` durations, except `name` `SCHEMA`/`CACHE` and `payload[:cached]` (transaction statements count).
+- **External HTTP:** the sum of instrumented `Net::HTTP` calls (8.3).
+- **Views:** web: `process_action.action_controller`'s `payload[:view_runtime]` (Active Record already takes the queries run during rendering out of it). Jobs (mailers): the summed durations of the **outermost** `render_template` / `render_layout` / `render_partial` / `render_collection` `.action_view` events, minus the database time recorded while they were open, so nested renders are never counted twice.
+- **Ruby:** total − database − HTTP − views, **floored at 0** (overlap, such as an HTTP call made from a view, can make the others add up to more than the total).
+
+### 8.3 Instrumentation
+
+Installed once by the Railtie's `after_initialize` when `performance_monitoring` is on (`GoodSorcery::Performance.install`):
+
+- **`ActiveSupport::Notifications.monotonic_subscribe`** to `sql.active_record`, `process_action.action_controller`, `render_template.action_view`, `render_layout.action_view`, `render_partial.action_view`, `render_collection.action_view` and `enqueue.active_job`. Each callback returns at once unless a recorder is active on this thread, and is wrapped in `rescue StandardError` (a failure disables recording for that unit of work and logs once a minute by class name).
+- **`Net::HTTP`**: `GoodSorcery::Performance::NetHttp` is prepended to `Net::HTTP` and wraps `#request(req, body = nil, &block)`. It records one span per call (a re-entrancy flag skips the recursive call `request` makes through `start`): method, `address` as host, the request path **without query string or fragment**, the response code (absent when it raised) and the duration. It always calls `super`, never rescues the app's exceptions, and records nothing while `Performance.suppressed?` is set: the gem's own `Transport` sets it around every request, so its posts (including `:sync` deliveries inside a request) are never measured. Other HTTP libraries are not instrumented.
+- **Errors:** when `Client#notify` reports an error inside an active recorder, it stores the returned `event_id` on the recorder (the first one wins); the trace sends it as `error_event_id` so the server links the trace to its issue.
+
+Per SQL event the recorder appends `[:sql, start, finish, sql, name, row_count]` to its span list (no copying, no normalisation yet) and adds to the database total. It also keeps a per-request `Hash` of raw SQL text: the **second** time the same text runs, it captures the call site once for that text (8.5). Per HTTP, view and enqueue event it appends a similar small array. At most `MAX_RAW_SPANS` (2,000) spans are kept per unit of work; the rest are only counted (`spans_dropped`), while the layer totals stay exact.
+
+### 8.4 Per-minute aggregation (in process)
+
+When a unit of work finishes, `Performance.finish(recorder)` hands its numbers to the **`Aggregator`** (one per process, behind a `Mutex`; the work inside the lock is a few hash and array updates):
+
+- Key: `[minute, kind, name]`, where `minute` is the UTC minute in which the unit **finished**. Labels (route, adapter, queue, source) are kept from the latest record.
+- Per key, a **`TransactionStats`**: `count`, `failed`, `duration_ms`, and per §8.6 bucket `[count, db_ms, http_ms, view_ms, ruby_ms]` (a sparse hash of at most 31 entries); jobs add `queue_wait_ms` and queue-wait bucket counts.
+- **Bounds:** at most `MAX_TRANSACTIONS` (500) names per minute per kind; further names are folded into `(other)`. At most `MAX_PENDING_MINUTES` (5) minutes are held (the open one plus unsent ones); the oldest is dropped (and counted, logged once a minute) beyond that. Worst case about 3 MB per process.
+
+### 8.5 Traces: slowest per transaction per minute
+
+Every recorded unit of work keeps its raw span list until it finishes. Then the **`TraceBuffer`** (per process, `Mutex`) decides cheaply whether it is the slowest so far for `[minute, kind, name]`: if not, the spans are discarded with no further work (the common case). If it is, **`TraceBuilder`** builds the trace **outside the lock** and the buffer swaps it in if it is still the slowest. There is **no duration floor**: a fast endpoint still gets its slowest trace. The buffer holds at most `MAX_TRACES_PER_MINUTE` (30) traces per minute: when full, a trace for a new key replaces the fastest one held only if it is slower. A flush sends at most 50 (server limit) traces.
+
+`TraceBuilder` turns raw spans into the payload's `spans` (INGEST_API.md › Traces payload):
+
+1. **SQL normalisation** (`SqlNormalizer`, 8.6) of every SQL span, with a per-build memo.
+2. **Grouping:** SQL spans with the same normalised text become one span (`count`, `duration_ms` = total of the calls, `offset_ms` of the first, `span_ms` = first start to last end, `rows` summed); repeated renders of the same template likewise. Groups keep the position of their first call. A SQL group of 10 or more calls is what the server flags as an **N+1**.
+3. **Call site** for each SQL group: captured when the same raw text ran the second time in the request (8.3), by `caller_locations` from inside the `sql.active_record` callback, taking the first frame that `Backtrace::Paths#in_app?` accepts: app-relative `file`, `line` and `method` (`base_label`). With `send_code_context`, `context` holds 2 lines before and after (5 lines of ≤ 200 chars) from the existing `Backtrace::LineCache`. Adapters that inline literal values produce different raw text per call, so their groups may lack a call site; that is accepted.
+4. **Caps:** at most `MAX_SPANS` (300) spans after grouping (the longest kept, then re-sorted by offset; the rest counted in `spans_dropped`), SQL ≤ 2,000 chars, names and templates ≤ 255, paths ≤ 1,024. A built trace is at most about 64 KiB of JSON.
+5. Trace fields: a **UUIDv7** `id` (time-ordered; `SecureRandom.uuid_v7` on Ruby ≥ 3.3, a small local implementation otherwise), `minute`, `started_at`, `duration_ms`, the four layers, `status`, `failed`, `error_event_id`, `request` (`method`, `path` without query string, `request_id` from `action_dispatch.request_id`) or `job` (`adapter`, `queue`, `queue_wait_ms`, `executions`), `host` (`Socket.gethostname`), `process` (`ProcessLabel`: "Puma worker 3" from Puma's process title, "Sidekiq", else the program's basename, plus nothing else from the command line), `runtime` (Ruby and Rails versions), `gc` (`GC.stat(:time)` and `GC.count` deltas) and `allocations` (`GC.stat(:total_allocated_objects)` delta). GC and allocation figures are process-wide during the request, as in Rails' own instrumentation, so other threads' work is included.
+
+### 8.6 Histogram and SQL normalisation
+
+**Histogram** (`GoodSorcery::Performance::Histogram`, scheme `gs-v1`, shared with the server and asserted literally by tests in both repos):
+
+```ruby
+BOUNDS_MS = [
+  1, 1.5, 2, 3, 4.5, 6.5, 9.5, 14, 20, 28,
+  40, 60, 85, 125, 180, 260, 380, 550, 800, 1_150,
+  1_700, 2_450, 3_550, 5_100, 7_500, 11_000, 16_000, 23_000, 33_000, 48_000
+].freeze                     # upper bounds of buckets 0..29; bucket 30 is >= 48,000 ms
+def self.index(ms) = BOUNDS_MS.bsearch_index { _1 > ms } || 30
+```
+
+**`SqlNormalizer#normalize(sql)`**, applied before anything leaves the process (an extension of the breadcrumb `SqlStatement` rules):
+
+1. Take the first 4,000 characters.
+2. Remove comments: `/* … */` (including Rails query-log and marginalia tags, which can carry request ids) and `-- …` to the end of the line.
+3. Replace dollar-quoted (`$$…$$`, `$tag$…$tag$`) and single-quoted strings (with `''` and `\'` escapes, and one cut off by the length cap) with `?`.
+4. Replace numeric literals not part of an identifier or a `$n` placeholder with `?`.
+5. Collapse `IN (?, ?, …)` / `IN ($1, $2, …)` to `IN (…)`, and repeated `VALUES (…), (…)` rows to the first row followed by `, …`.
+6. Collapse whitespace and cap at 2,000 characters.
+
+Placeholders such as `$1` (Postgres prepared statements) and identifiers stay readable; `TRUE`, `FALSE` and `NULL` stay. Raw SQL is held in memory only while the unit of work runs and is never sent.
+
+### 8.7 Flushing and transport
+
+- **`Performance::Flusher`**, one thread per process (`goodsorcery-apm`), started lazily on the first recorded unit of work. It wakes once a minute at the minute boundary plus a per-process random offset of 2–20 seconds (spreading the server's load), takes every **closed** minute from the Aggregator and TraceBuffer, and sends:
+  1. `POST /api/v1/apm/metrics` with the closed minutes (≤ 5), and
+  2. `POST /api/v1/apm/traces` with their traces (≤ 50, slowest first), if any.
+- **Transport reuse:** both go through the client's existing `Transport` (keep-alive connection, gzip at ≥ 1 KiB, Bearer key, masked-key logging), with a new `#post_apm(path, json)` returning a `Transport::Result`. The persistent connection is shared with the error worker under the existing lock; a concurrent caller gets a short-lived connection as today.
+- **Retries:** each payload gets a UUIDv7 `batch_id` when it is first built and keeps it on every retry (the server counts a batch once). `429` waits for `Retry-After`; `5xx`/network errors keep the payload for the next wake; payloads still unsent after 3 attempts, or pushed out by the 5-minute bound, are dropped and counted (logged at most once a minute). `400`/`401`/`413`/`415`/`422` drop the payload (a warning once a minute). `404` means the server has no APM endpoints: log once ("the server has no performance endpoints; performance monitoring is off") and stop recording in this process.
+- **Exit:** `GoodSorcery.shutdown` (the existing `at_exit` hook) also flushes all minutes, including the open one (additive merging makes a partial minute safe), within `shutdown_timeout`.
+- **Fork safety:** the Aggregator, TraceBuffer and Flusher remember `Process.pid`. In a forked child they start empty (the parent keeps and sends what it recorded) and the thread starts again on first use, like the async delivery. A connection inherited from the parent is dropped, as `Transport::Connection` already does.
+- **`:test` delivery:** nothing is sent; `GoodSorcery.flush_performance(include_open_minute: true)` builds the payloads synchronously into `GoodSorcery.test_performance_payloads` (`[{ "path" =>, "body" => Hash }]`), cleared by `clear_test_events`. `:sync`, `:async` and `:active_job` all use the Flusher thread (APM data never goes through Active Job).
+
+### 8.8 Overhead budget
+
+| Where | Budget (YJIT, typical) |
+|---|---|
+| Disabled (off, or a disabled environment) | one boolean check per request; nothing subscribed |
+| Per unit of work, fixed | ≤ 30 µs: recorder setup, GC snapshots, aggregation and the slowest-so-far check |
+| Per SQL / HTTP / view span | ≤ 5 µs (array append, hash lookup); one `caller_locations` per distinct repeated query |
+| Building a trace (only the slowest so far in its minute) | ≤ 2 ms for 2,000 raw spans |
+| Memory | ≤ 2,000 raw spans per running unit of work; ≤ ~3 MB aggregates and ≤ ~2 MB traces per process |
+| Network | 2 small gzip'd requests per process per minute, off the request path |
+
+A benchmark task (`bin/rake bench:performance`, not run in CI) measures a dummy Rails request with 50 queries with monitoring off and on.
+
+### 8.9 Privacy rules
+
+- **Metrics carry no captured data:** transaction names, route patterns (never real paths), adapter, queue, source file and numbers only.
+- **Traces carry no params, headers, cookies, session, bodies, query strings, userinfo or job arguments.** SQL is normalised (8.6) so literal values never leave the process; HTTP spans are method + host + path; the request is method + path (no query string) + request id; code context only with `send_code_context`.
+- `before_send` and `filter_params` do not apply (there are no key/value data to filter); the allow-list above is the protection. The server scrubs again and stores traces encrypted.
+- The gem's log lines name classes, counts and statuses only, never SQL, paths or host names.
+
+### 8.10 Files and tests
+
+Files: `lib/goodsorcery/performance.rb` (module API: `install`, `recording?`, `suppressed?`, `start`, `finish`, `flush_performance`, test payloads) and `lib/goodsorcery/performance/{histogram,recorder,aggregator,transaction_stats,trace_buffer,trace_builder,sql_normalizer,call_site,subscribers,net_http,flusher,payloads,process_label,uuid_v7}.rb`; changes to `configuration.rb`, `client.rb` (error event id, shutdown), `transport.rb` (`post_apm`, suppression), `rack/middleware.rb`, `integrations/active_job.rb`, `integrations/sidekiq.rb`, `integrations/rails.rb`, the generator template, `README.md` (a "Performance monitoring" section) and `CHANGELOG.md`; the version goes to 0.2.0 at release.
+
+Required tests (Minitest, no network: the fake server and fake transport in `test/support`):
+- Histogram: the literal `BOUNDS_MS` (the same list as goodsorcery_web) and `index` at 0, 0.999, 1, 47,999, 48,000 and 10⁶.
+- Off by default: nothing subscribed, no thread, `Net::HTTP` not prepended; disabled environments and a missing key record nothing.
+- Rails dummy app: a request records name, method, route pattern, status, db and view time; a raised request counts as failed with status 500 and carries `error_event_id`; ignored transactions and routing 404s are not recorded; Ruby time is floored at 0.
+- Active Job and Sidekiq: name, adapter, queue, queue wait (also for scheduled jobs and Sidekiq 8 ms timestamps), failed attempts; an inline job inside a request is not a separate transaction.
+- Aggregation: buckets and layer sums per minute, the 500-name cap folding into `(other)`, the 5-minute bound.
+- SQL normaliser: strings (escaped quotes, dollar quotes, cut-off strings), numbers next to identifiers and `$n`, `IN` lists, `VALUES` rows, comments, whitespace, length caps.
+- Traces: only the slowest per transaction per minute is kept (and built); the 30-trace bound; grouping with count, total, `span_ms` and rows; call site and 5-line context (none without `send_code_context`); span cap and `spans_dropped`; HTTP spans drop the query string and are not recorded for the gem's own requests; UUIDv7 ids.
+- Flusher: payload shapes match INGEST_API.md (JSON schema fixtures), gzip, the jittered schedule (injected clock), `batch_id` reused on retry, `429` waits, `5xx` retries then drops, `404` turns monitoring off, the exit flush includes the open minute, and a forked child starts empty.
+- Never raises: subscribers, the `Net::HTTP` wrapper and the flusher with injected failures leave the app's request, job and HTTP call untouched (`Net::HTTP` exceptions still reach the app).
