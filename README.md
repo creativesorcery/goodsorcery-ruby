@@ -7,6 +7,7 @@ The Ruby client for the [Good Sorcery](https://app.goodsorcery.com) error tracke
 - The queue is bounded and **drops rather than blocks** when it is full. Rate limits (`429` + `Retry-After`) and server errors are retried with backoff.
 - It has no runtime dependencies (standard library only). It needs Ruby 3.2 or newer and works with or without Rails.
 - Rails, Rack/Sinatra, Active Job, Action Mailer, Action Cable, Sidekiq and Rake are covered out of the box (see [Integrations](#integrations)).
+- Optional, opt-in [performance monitoring](#performance-monitoring) for Rails apps: response times of every request and job, and timelines of the slowest ones.
 
 ## Installation
 
@@ -106,6 +107,9 @@ Change settings inside `GoodSorcery.configure`: it recompiles the filters and re
 | `shutdown_timeout` | `5` s | How long the exit hook waits for the queue to drain. |
 | `open_timeout` / `read_timeout` | `2` s / `5` s | HTTP timeouts (writes use `read_timeout`). |
 | `active_job_queue` | `"default"` | Queue for `delivery = :active_job`. |
+| `performance_monitoring` | `false` (or `ENV["GOODSORCERY_PERFORMANCE_MONITORING"]` `1`/`0`) | Records every request and job and sends metrics once a minute; see [Performance monitoring](#performance-monitoring). Read when the app boots. |
+| `performance_traces` | `true` | Also sends the timeline of the slowest request per transaction per minute. `false` sends metrics only. |
+| `performance_ignore_transactions` | `["Rails::HealthController#show"]` | Transaction names (exact strings) or regexps never recorded. |
 
 ### Delivery
 
@@ -230,6 +234,30 @@ Hooked in automatically when Sidekiq is loaded before `goodsorcery` or in a Rail
 
 Rails apps get this automatically; elsewhere `require "goodsorcery/tasks"` in your Rakefile. An exception that ends a rake run is reported with `transaction = "rake <tasks>"` (task arguments stay out of the name and go, filtered, to `context.rake`), and the queue is flushed, for up to `shutdown_timeout`, before rake exits.
 
+## Performance monitoring
+
+Off by default. Turn it on in the initializer (or with `GOODSORCERY_PERFORMANCE_MONITORING=1`) and restart:
+
+```ruby
+GoodSorcery.configure do |config|
+  config.performance_monitoring = true
+  # config.performance_traces = true                  # false = metrics only
+  # config.performance_ignore_transactions += ["HealthController#show", /\AAdmin::/]
+end
+```
+
+It follows the same environment rules as error reporting and needs an API key: in a disabled environment nothing is subscribed, no thread starts and a request costs one boolean check.
+
+**What is measured.** Each controller action (`CheckoutsController#create`, with the HTTP method and the route pattern such as `/checkout`, never the real path) and each job (Active Job with any adapter, and Sidekiq jobs not wrapped by Active Job; with the adapter, queue and queue wait). A request or job counts as failed when an exception escapes it, when a request answers with a 5xx status, or when Active Job's `retry_on`/`discard_on` handles a job's exception. Time is split into database (`sql.active_record`, without `SCHEMA` and cached queries), external HTTP (`Net::HTTP` calls), views and Ruby (the rest). Requests that never reach a controller (routing 404s, assets) and a job run inline inside a request are not separate transactions.
+
+**How it is sent.** Numbers are aggregated in your process per transaction per minute (count, failures, total time and a log-scale histogram with the time per layer) and sent once a minute from one background thread (`goodsorcery-apm`) as a small gzip'd request. The slowest request per transaction per minute also sends its **trace**: a timeline of its SQL queries, HTTP calls, template renders and job enqueues. Identical queries are grouped with their count, total time and the line of your code that ran them, so N+1 queries stand out. Unsent data is kept for at most five minutes; the payloads are retried with the same batch id.
+
+**What a trace never contains.** No params, headers, cookies, session, request or response bodies, query strings, job arguments or user data. SQL is normalised before it leaves the process: string and number literals become `?`, `IN (…)` lists and `VALUES` rows collapse, comments are removed; bind placeholders such as `$1` stay. HTTP calls are method, host and path only. Code lines around a repeated query's call site are sent only with `send_code_context` (the default). `before_send` and `filter_params` don't apply, because there is nothing key/value-shaped to filter.
+
+**Cost.** Per request, a few microseconds of bookkeeping plus about 2 µs per query (`bundle exec rake bench:performance` measures it on your machine). Memory is bounded: at most 2,000 spans per running request, 500 transaction names per minute and kind (the rest are counted as `(other)`), five minutes of metrics and 30 traces per minute.
+
+Outside Rails, call `GoodSorcery::Performance.install` after `GoodSorcery.configure`; jobs and `Net::HTTP` are then measured, but web requests need Rails to get their names. In your test suite, the `:test` delivery keeps the payloads in memory: `GoodSorcery.flush_performance` builds them into `GoodSorcery.test_performance_payloads` (`[{ "path" => "/api/v1/apm/metrics", "body" => {...} }]`).
+
 ## Install check
 
 `bin/rails goodsorcery:verify` (or `rake goodsorcery:verify`) checks your setup on demand; see the end of this section.
@@ -270,7 +298,7 @@ event = GoodSorcery.test_events.last
 assert_equal "Payments::DeclinedError", event["exception"]["class"]
 ```
 
-The `:test` delivery ignores the environment check, stores the filtered event hashes exactly as they would be sent, and never touches the network.
+The `:test` delivery ignores the environment check, stores the filtered event hashes exactly as they would be sent, and never touches the network. With performance monitoring started (`GoodSorcery::Performance.install` after setting `config.performance_monitoring = true`), `GoodSorcery.flush_performance` stores the performance payloads in `GoodSorcery.test_performance_payloads`; `clear_test_events` clears both.
 
 ## Self-hosted servers
 
@@ -291,6 +319,7 @@ These are for integrations and advanced setups:
 bin/setup              # bundle install, then the whole test suite
 bundle exec rake test  # core, then Rack/Sidekiq/Rake, then Rails tests, each in its own process
 bundle exec rubocop
+bundle exec rake bench:performance  # cost of performance monitoring per request (not run in CI)
 bin/console
 ```
 

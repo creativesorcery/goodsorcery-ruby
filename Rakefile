@@ -29,3 +29,10 @@ desc "Run the core, integration and Rails test suites"
 task test: %w[test:core test:integrations test:rails]
 
 task default: :test
+
+namespace :bench do
+  desc "Measure the per-request cost of performance monitoring (not run in CI)"
+  task :performance do
+    ruby "bench/performance.rb"
+  end
+end

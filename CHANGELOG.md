@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased (0.2.0)
+
+- **Performance monitoring** (opt-in, `config.performance_monitoring = true` or `GOODSORCERY_PERFORMANCE_MONITORING=1`). Records every Rails request and every Active Job and Sidekiq job: count, failures, total time and a shared log-scale histogram (`gs-v1`) with database, external HTTP, view and Ruby time per bucket, plus queue wait for jobs. Metrics are aggregated per transaction per minute in process and sent once a minute to `POST /api/v1/apm/metrics` from a background thread (`goodsorcery-apm`).
+- **Traces** of the slowest request per transaction per minute (`config.performance_traces`, default on), sent to `POST /api/v1/apm/traces`: SQL, `Net::HTTP`, render and enqueue spans; repeated queries grouped with their count, total and app call site (with code context under `send_code_context`); SQL normalised so no literal values leave the process; HTTP spans and the request path without query strings; GC, allocations, host and process; the id of the error reported during the request.
+- `config.performance_ignore_transactions` (default `["Rails::HealthController#show"]`). `GoodSorcery::DeliveryJob` is never recorded.
+- `GoodSorcery.flush_performance` and, with the `:test` delivery, `GoodSorcery.test_performance_payloads`.
+- The gem's own HTTP requests are never measured. Payloads keep their `batch_id` across retries; `429`, `5xx`, `404` (server without performance endpoints: monitoring turns off) and rejected payloads are handled as documented; data is bounded to five minutes and flushed at exit; fork-safe.
+- `bundle exec rake bench:performance` measures the per-request cost.
+
 ## 0.1.1 (2026-10-11)
 
 - `Sidekiq::JobRetry::Handled` and `Sidekiq::JobRetry::Skip` are ignored by default. Sidekiq raises them internally after its retry handling, so reporting them only duplicated the original error.
