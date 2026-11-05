@@ -260,7 +260,7 @@ When a unit of work finishes, `Performance.finish(recorder)` hands its numbers t
 
 ### 8.5 Traces: slowest per transaction per minute
 
-Every recorded unit of work keeps its raw span list until it finishes. Then the **`TraceBuffer`** (per process, `Mutex`) decides cheaply whether it is the slowest so far for `[minute, kind, name]`: if not, the spans are discarded with no further work (the common case). If it is, **`TraceBuilder`** builds the trace **outside the lock** and the buffer swaps it in if it is still the slowest. There is **no duration floor**: a fast endpoint still gets its slowest trace. The buffer holds at most `MAX_TRACES_PER_MINUTE` (30) traces per minute: when full, a trace for a new key replaces the fastest one held only if it is slower. A flush sends every trace it collects, at most 50 (the server's limit) per body.
+Every recorded unit of work keeps its raw span list until it finishes. Then the **`TraceBuffer`** (per process, `Mutex`) decides cheaply whether it is the slowest so far for `[minute, kind, name]`: if not, the spans are discarded with no further work (the common case). If it is, **`TraceBuilder`** builds the trace **outside the lock** and the buffer swaps it in if it is still the slowest. For a web request the build waits until the response has been sent when the server offers a hook for that (Rack 3's `rack.response_finished`, else Puma's `rack.after_reply`; the check is repeated then), so the slowest requests are not kept waiting for their trace; jobs, and servers without such a hook, build it as the unit of work finishes. A failing build is logged once a minute, never raised. There is **no duration floor**: a fast endpoint still gets its slowest trace. The buffer holds at most `MAX_TRACES_PER_MINUTE` (30) traces per minute: when full, a trace for a new key replaces the fastest one held only if it is slower. A flush sends every trace it collects, at most 50 (the server's limit) per body.
 
 `TraceBuilder` turns raw spans into the payload's `spans` (INGEST_API.md › Traces payload):
 
@@ -314,7 +314,7 @@ Placeholders such as `$1` (Postgres prepared statements) and identifiers stay re
 | Disabled (off, or a disabled environment) | one boolean check per request; nothing subscribed |
 | Per unit of work, fixed | ≤ 30 µs: recorder setup, GC snapshots, aggregation and the slowest-so-far check |
 | Per SQL / HTTP / view span | ≤ 5 µs (array append, hash lookup); one `caller_locations` per distinct repeated query |
-| Building a trace (only the slowest so far in its minute) | ≤ 2 ms for 2,000 raw spans |
+| Building a trace (only the slowest so far in its minute) | ≤ 2 ms for 2,000 raw spans, after the response is sent where the server allows |
 | Memory | ≤ 2,000 raw spans and ≤ 4 MiB of SQL text per running unit of work; ≤ ~3 MB aggregates and ≤ ~2 MB traces per process |
 | Network | 2 small gzip'd requests per process per minute, off the request path |
 

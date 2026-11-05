@@ -29,12 +29,50 @@ module GoodSorcery
 
       private
 
+      # A request's trace is built once the response has gone out, when the
+      # server offers a hook for that, so the slowest requests are not kept
+      # waiting for it.
       def offer_trace(minute, recorder)
         key = [recorder.kind, recorder.name]
         return unless @trace_buffer.candidate?(minute, key, recorder.duration_ms)
 
+        hooks = AfterReply.hooks(recorder.env)
+        return build_trace(minute, key, recorder) unless hooks
+
+        hooks << AfterReply.callback { build_trace(minute, key, recorder) }
+      end
+
+      def build_trace(minute, key, recorder)
+        return unless @trace_buffer.candidate?(minute, key, recorder.duration_ms)
+
         trace = TraceBuilder.new(recorder, minute, @context).build
         @trace_buffer.offer(minute, key, recorder.duration_ms, trace)
+      end
+    end
+
+    # The Rack server's hooks run after the response is sent: Rack 3's
+    # rack.response_finished (callables get env, status, headers, error)
+    # or Puma's rack.after_reply (no arguments).
+    module AfterReply
+      KEYS = %w[rack.response_finished rack.after_reply].freeze
+
+      def self.hooks(env)
+        return nil unless env.is_a?(Hash)
+
+        KEYS.each do |key|
+          hooks = env[key]
+          return hooks if hooks.is_a?(Array) && !hooks.frozen?
+        end
+        nil
+      end
+
+      # A hook that never raises into the server.
+      def self.callback(&work)
+        proc do |*|
+          work.call
+        rescue StandardError => e
+          GoodSorcery.log.warn_every(:apm_trace_error, 60, "could not build a performance trace (#{e.class})")
+        end
       end
     end
 

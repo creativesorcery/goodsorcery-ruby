@@ -118,6 +118,38 @@ class PerformanceRecordingTest < Minitest::Test
     assert_equal "/products/42", recorded_traces.first["request"]["path"]
   end
 
+  # Puma's rack.after_reply and Rack 3's rack.response_finished run after
+  # the response is sent: the trace is built then, not before the reply.
+  def test_the_trace_is_built_after_the_response_when_the_server_offers_a_hook
+    [["rack.after_reply", []], ["rack.response_finished", [{}, 200, {}, nil]]].each do |key, arguments|
+      hooks = []
+      call(lambda do |_env|
+        named("#{key}#show")
+        [200, {}, []]
+      end, key => hooks)
+
+      assert_equal 1, hooks.size
+      assert_equal 0, Performance.agent.trace_buffer.size
+      hooks.each { |hook| hook.call(*arguments) }
+
+      assert_equal 1, Performance.agent.trace_buffer.size
+      assert_equal "#{key}#show", recorded_traces.last["name"]
+    end
+  end
+
+  def test_a_failing_trace_build_after_the_response_is_logged_not_raised
+    hooks = []
+    call(lambda do |_env|
+      named
+      [200, {}, []]
+    end, "rack.after_reply" => hooks)
+    Performance.agent.instance_variable_set(:@context, Object.new)
+    hooks.each(&:call)
+
+    assert_includes log_output, "could not build a performance trace (NoMethodError)"
+    assert_empty recorded_traces
+  end
+
   def test_a_5xx_response_counts_as_failed
     call(lambda do |_env|
       named
