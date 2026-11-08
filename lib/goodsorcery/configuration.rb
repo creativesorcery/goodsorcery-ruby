@@ -11,17 +11,17 @@ module GoodSorcery
     extend Validation
     include PerformanceSettings
 
-    DELIVERIES = %i[async sync active_job test].freeze
+    DELIVERIES = %i[async sync test].freeze
     DELIVERY_SETTINGS = %i[
       delivery api_key endpoint batch_size flush_interval max_queue_size shutdown_timeout
-      max_retries open_timeout read_timeout active_job_queue
+      max_retries open_timeout read_timeout
     ].freeze
 
     attr_writer :api_key, :environment, :release, :logger, :root
     attr_accessor :disabled_environments, :enabled_environments, :filter_params,
                   :use_rails_filter_parameters, :extra_filters, :ignore_exceptions, :tags,
                   :user_method, :send_code_context, :breadcrumbs,
-                  :report_handled_errors, :active_job_queue, :request_extractor,
+                  :report_handled_errors, :request_extractor,
                   :send_request_params, :send_request_headers, :send_session, :send_job_arguments
     attr_reader :delivery, :batch_size, :flush_interval, :max_queue_size,
                 :shutdown_timeout, :max_retries, :open_timeout, :read_timeout,
@@ -146,7 +146,6 @@ module GoodSorcery
       @max_retries = 3
       @open_timeout = 2
       @read_timeout = 5
-      @active_job_queue = "default"
     end
 
     def assign_behaviour_defaults

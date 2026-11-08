@@ -107,16 +107,3 @@ class CustomDeliveryTest < Minitest::Test
     assert_empty collector.events
   end
 end
-
-class ActiveJobFallbackTest < Minitest::Test
-  def test_falls_back_to_the_background_thread_without_active_job
-    fallback = GoodSorcery::Delivery::Test.new
-    queue = GoodSorcery::Delivery::ActiveJobQueue.new(serializer: GoodSorcery::EventSerializer.new(captured_log),
-                                                      queue_name: "default", log: captured_log) { fallback }
-    skip "ActiveJob is loaded in this process" if defined?(ActiveJob::Base)
-
-    assert queue.deliver("event_id" => "x")
-    assert_equal(["x"], fallback.events.map { |event| event["event_id"] })
-    assert_includes log_output, "ActiveJob is not loaded"
-  end
-end

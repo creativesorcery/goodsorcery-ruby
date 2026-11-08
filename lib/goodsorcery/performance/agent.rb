@@ -76,15 +76,14 @@ module GoodSorcery
       end
     end
 
-    # performance_ignore_transactions: exact names or regexps, plus the gem's
-    # own delivery job. Answers are cached per name.
+    # performance_ignore_transactions: exact names or regexps. Answers are
+    # cached per name.
     class IgnoreMatcher
-      ALWAYS = ["GoodSorcery::DeliveryJob"].freeze
       MAX_CACHED = 1_000
 
       def initialize(list)
         entries = Array(list)
-        @names = (entries.grep_v(Regexp).map(&:to_s) + ALWAYS).to_h { |name| [name, true] }
+        @names = entries.grep_v(Regexp).map(&:to_s).to_h { |name| [name, true] }
         @patterns = entries.grep(Regexp)
         @cache = {}
       end

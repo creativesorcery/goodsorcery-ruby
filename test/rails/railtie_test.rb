@@ -41,12 +41,4 @@ class RailtieTest < Minitest::Test
     GoodSorcery.configuration.use_rails_filter_parameters = false
     assert_empty GoodSorcery.configuration.event_filters
   end
-
-  def test_errors_from_the_delivery_job_are_not_reported
-    GoodSorcery.configure { |config| config.delivery = :test }
-    job = GoodSorcery::Delivery::DeliveryJobLoader.job_class.new("{}")
-    Rails.error.report(RuntimeError.new("delivery failed"), handled: false, context: { job: job })
-
-    assert_empty GoodSorcery.test_events
-  end
 end

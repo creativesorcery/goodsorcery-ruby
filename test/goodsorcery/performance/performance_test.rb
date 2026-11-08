@@ -69,7 +69,7 @@ class PerformanceGateTest < Minitest::Test
     end
 
     refute Performance.install
-    assert_includes log_output, "performance monitoring needs the :async, :sync or :active_job delivery"
+    assert_includes log_output, "performance monitoring needs the :async or :sync delivery"
   end
 
   def test_an_enabled_environment_with_a_key_records
@@ -196,7 +196,7 @@ class PerformanceRecordingTest < Minitest::Test
   def test_ignored_transactions_are_not_recorded
     GoodSorcery.configuration.performance_ignore_transactions += ["HealthController#show", /\AAdmin::/]
     Performance.install
-    ["HealthController#show", "Admin::UsersController#index", "GoodSorcery::DeliveryJob", "Kept#show"].each do |name|
+    ["HealthController#show", "Admin::UsersController#index", "Kept#show"].each do |name|
       call(lambda do |_env|
         named(name)
         [200, {}, []]

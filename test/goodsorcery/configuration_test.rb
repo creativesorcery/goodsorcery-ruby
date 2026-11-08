@@ -21,7 +21,6 @@ class ConfigurationTest < Minitest::Test
     assert_equal GoodSorcery::Defaults::FILTER_PARAMS, config.filter_params
     assert_equal :verify, config.install_check
     assert_equal 40, config.max_breadcrumbs
-    assert_equal "default", config.active_job_queue
     assert_equal "https://app.goodsorcery.com", config.endpoint
   end
 
@@ -110,7 +109,7 @@ class ConfigurationTest < Minitest::Test
 
   def test_rejects_unknown_delivery
     error = assert_raises(ArgumentError) { config.delivery = :carrier_pigeon }
-    assert_match(/delivery must be one of :async, :sync, :active_job, :test/, error.message)
+    assert_match(/delivery must be one of :async, :sync, :test/, error.message)
 
     holder = Struct.new(:api_key).new("gs_live_9f2c41aa77d0e81a")
     error = assert_raises(ArgumentError) { config.delivery = holder }

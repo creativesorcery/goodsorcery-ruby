@@ -25,7 +25,6 @@ module GoodSorcery
         end
 
         def perform_now
-          return super if Integrations.delivery_job?(self)
           return Integrations.run_unit_of_work(JobDetails.new(self)) { super } unless Performance.active?
 
           Performance.measure_job(Performance::ActiveJobTiming.new(self)) do
