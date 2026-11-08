@@ -51,6 +51,7 @@ class TraceBuilderTest < Minitest::Test
     assert_equal 13, trace["sql_count"]
     assert_equal RUBY_VERSION, trace["runtime"]["ruby"]
     assert_kind_of Integer, trace["allocations"]
+    assert_equal trace["ruby_ms"], trace["app_ms"]
     assert_equal %w[count time_ms], trace["gc"].keys.sort
     refute trace.key?("source")
   end

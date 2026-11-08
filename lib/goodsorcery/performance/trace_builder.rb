@@ -59,11 +59,14 @@ module GoodSorcery
         hash.merge(Labels.for(@recorder).except("source"))
       end
 
+      # The fourth layer goes out under both names: app_ms (protocol
+      # revision 1.1) and ruby_ms, which older servers read.
       def timing
+        app_ms = round(@recorder.ruby_ms)
         { "minute" => Performance.minute_iso(@minute), "started_at" => Time.at(@recorder.started_wall).utc.iso8601(3),
           "duration_ms" => round(@recorder.duration_ms), "db_ms" => round(@recorder.db_ms),
           "http_ms" => round(@recorder.http_ms), "view_ms" => round(@recorder.view_ms),
-          "ruby_ms" => round(@recorder.ruby_ms) }
+          "app_ms" => app_ms, "ruby_ms" => app_ms }
       end
 
       def outcome
