@@ -1,8 +1,6 @@
 # Changelog
 
-## Unreleased
-
-### Removed
+## 0.3.0 (2026-11-07)
 
 - The `:active_job` delivery: `GoodSorcery::DeliveryJob`, `config.active_job_queue` and `GoodSorcery::RetryableDeliveryError`. Use `:async` (the default). Errors raised in your own jobs are still reported, and jobs are still measured by performance monitoring.
 - Custom delivery objects (`config.delivery = <object responding to #deliver>`).
