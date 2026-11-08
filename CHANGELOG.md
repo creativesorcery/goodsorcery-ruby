@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (0.2.0)
+## 0.2.0 (2026-11-07)
 
 - **Performance monitoring** (opt-in, `config.performance_monitoring = true` or `GOODSORCERY_PERFORMANCE_MONITORING=1`). Records every Rails request and every Active Job and Sidekiq job: count, failures, total time and a shared log-scale histogram (`gs-v1`) with database, external HTTP, view and Ruby time per bucket, plus queue wait for jobs. Metrics are aggregated per transaction per minute in process and sent once a minute to `POST /api/v1/apm/metrics` from a background thread (`goodsorcery-apm`).
 - **Traces** of the slowest request per transaction per minute (`config.performance_traces`, default on), sent to `POST /api/v1/apm/traces`: SQL, `Net::HTTP`, render and enqueue spans; repeated queries grouped with their count, total and app call site (with code context under `send_code_context`); SQL normalised so no literal values leave the process; HTTP spans and the request path without query strings; GC, allocations, host and process; the id of the error reported during the request.
