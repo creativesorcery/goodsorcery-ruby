@@ -17,9 +17,10 @@ module GoodSorcery
 
       attr_reader :kind, :status, :retry_after, :error_class, :body, :pending
 
-      def self.from_response(response)
+      # +body+ replaces the parsed response body (Connection::BodyTooLarge).
+      def self.from_response(response, body: ResponseBody.parse(response))
         status = response.code.to_i
-        new(kind_for(status), status: status, body: ResponseBody.parse(response),
+        new(kind_for(status), status: status, body: body,
                               retry_after: status == 429 ? RetryAfter.parse(response["Retry-After"]) : nil)
       end
 
@@ -66,7 +67,8 @@ module GoodSorcery
       end
     end
 
-    # Parses small JSON response bodies; anything else becomes {}.
+    # Parses small JSON response bodies; anything else becomes {}. Connection
+    # stops reading a body longer than MAX_BYTES.
     module ResponseBody
       MAX_BYTES = 65_536
 

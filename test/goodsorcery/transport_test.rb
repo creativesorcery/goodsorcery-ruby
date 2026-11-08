@@ -189,6 +189,40 @@ class TransportTest < Minitest::Test
     assert_equal "staging", result.body["environment"]
   end
 
+  # A small gzip body can inflate to gigabytes; Net::HTTP only inflates when
+  # it chose the Accept-Encoding itself.
+  def test_gzip_responses_are_not_inflated
+    respond(200, Zlib.gzip(%({"ok":true#{" " * 1_000_000}})), "Content-Encoding" => "gzip")
+    result = transport.verify
+
+    assert_equal "identity", @server.requests.first.headers["accept-encoding"]
+    assert_predicate result, :success?
+    assert_empty(result.body)
+  end
+
+  # The rest of the body is left unread, so the connection can't be reused.
+  def test_a_response_body_over_the_limit_is_not_read_and_the_connection_is_replaced
+    respond(429, %({"error":"#{"x" * 10_000_000}"}), "Retry-After" => "30")
+    result = transport.post_event(event_json)
+
+    assert_predicate result, :rate_limited?
+    assert_equal 30, result.retry_after
+    assert_empty(result.body)
+
+    respond(202, '{"id":"next"}')
+
+    assert_equal "next", @transport.post_event(event_json).event_id
+    assert_equal 2, @server.connections
+  end
+
+  def test_the_body_buffer_stops_at_its_limit
+    body = GoodSorcery::Transport::Connection::BoundedBody.new(10)
+    body << "12345" << "67890"
+
+    assert_raises(GoodSorcery::Transport::Connection::BoundedBody::Overflow) { body << "1" }
+    assert_equal "1234567890", body
+  end
+
   def test_a_forked_child_opens_its_own_connection
     skip "fork is not available" unless Process.respond_to?(:fork)
     client = transport

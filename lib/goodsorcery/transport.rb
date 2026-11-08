@@ -112,6 +112,8 @@ module GoodSorcery
 
     def send_request(request)
       Result.from_response(perform(request))
+    rescue Connection::BodyTooLarge => e
+      Result.from_response(e.response, body: {})
     rescue StandardError => e
       Result.from_error(e)
     end
@@ -148,6 +150,9 @@ module GoodSorcery
         "Authorization" => "Bearer #{@api_key}",
         "Content-Type" => "application/json",
         "Accept" => "application/json",
+        # Turns off Net::HTTP's automatic gzip inflation, so the size cap on
+        # response bodies (Connection) applies to the bytes that arrive.
+        "Accept-Encoding" => "identity",
         "User-Agent" => "#{NOTIFIER_NAME}/#{VERSION}"
       }
     end
