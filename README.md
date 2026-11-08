@@ -99,14 +99,13 @@ Change settings inside `GoodSorcery.configure`: it recompiles the filters and re
 | `send_job_arguments` | `true` | `false` never sends Active Job, mailer or Sidekiq arguments. |
 | `install_check` | `:verify` | `:verify`, `:test_event` or `false`; see [Install check](#install-check). |
 | `logger` | `Logger.new($stderr)` at `WARN` (`Rails.logger` in Rails) | The gem's own messages, prefixed `[goodsorcery]`. |
-| `delivery` | `:async` | See [Delivery](#delivery). |
+| `delivery` | `:async` | `:async`, `:sync` or `:test`; see [Delivery](#delivery). |
 | `batch_size` | `25` | Events per request, 1–100. |
 | `flush_interval` | `2.0` s | Longest an event waits in the queue. |
 | `max_queue_size` | `1_000` | Events beyond this are dropped and counted. |
 | `max_retries` | `3` | For `5xx`/network failures (exponential backoff with jitter, capped at 60 s). |
 | `shutdown_timeout` | `5` s | How long the exit hook waits for the queue to drain. |
 | `open_timeout` / `read_timeout` | `2` s / `5` s | HTTP timeouts (writes use `read_timeout`). |
-| `active_job_queue` | `"default"` | Queue for `delivery = :active_job`. |
 | `performance_monitoring` | `false` (or `ENV["GOODSORCERY_PERFORMANCE_MONITORING"]` `1`/`0`) | Records every request and job and sends metrics once a minute; see [Performance monitoring](#performance-monitoring). Read when the app boots. |
 | `performance_traces` | `true` | Also sends the timeline of the slowest request per transaction per minute. `false` sends metrics only. |
 | `performance_ignore_transactions` | `["Rails::HealthController#show"]` | Transaction names (exact strings) or regexps never recorded. |
@@ -116,10 +115,10 @@ Change settings inside `GoodSorcery.configure`: it recompiles the filters and re
 | `config.delivery` | What it does | When to use |
 |---|---|---|
 | `:async` (default) | Pushes events onto a bounded in-memory queue. One background thread (`goodsorcery-worker`) sends them to `POST /api/v1/events/batch` when `batch_size` events are waiting or `flush_interval` has passed. Restarts after `fork`; drains at exit. | Web apps and job workers (almost everyone). |
-| `:sync` | Sends each event immediately in the calling thread. | Scripts, rake tasks, serverless functions, debugging. |
-| `:active_job` | Enqueues `GoodSorcery::DeliveryJob` with the filtered event as JSON; the job sends it and retries `429`/`5xx` (5 attempts). Falls back to `:async` if enqueueing fails. **The filtered event is stored in your job backend.** | Apps that want delivery to survive a crash and already run a durable queue. |
+| `:sync` | Sends each event in the calling thread, before `notify` returns. | Serverless functions and other short-lived processes where a background thread doesn't get to run, such as AWS Lambda (the process is frozen between invocations). **Not for normal web apps:** every report adds an HTTPS round trip to the request that hit the error. |
 | `:test` | Keeps events in memory (`GoodSorcery.test_events`). Never touches the network and ignores the environment check. | Your app's test suite. |
-| any object | Must respond to `deliver(event_hash)`; may respond to `flush(timeout)` and `shutdown(timeout)`. | Custom transports. |
+
+Any other value raises an `ArgumentError` from `GoodSorcery.configure`, when the app boots. The `:active_job` delivery and custom delivery objects were removed; use `:async`.
 
 ### Environments
 
@@ -209,7 +208,7 @@ Nothing to set up beyond the initializer. The Railtie:
 - inserts `GoodSorcery::Rack::Middleware` right after `ActionDispatch::ShowExceptions`, so it sees exceptions before Rails renders the error page. Errors that a lower layer turned into a 5xx response (`env["action_dispatch.exception"]`) are reported too;
 - subscribes to `Rails.error`: unhandled errors are reported at level `error`, handled ones (`Rails.error.handle`, `Rails.error.report(handled: true)`) at their severity (`warning` by default). Set `report_handled_errors = false` to skip handled ones;
 - finds the user with the controller's `user_method` (default `current_user`, private methods too), else `Current.user`, and sends only `id`, `email`, `username` and `name`;
-- wraps Active Job's `perform_now` outside the job's own `rescue_from`/`retry_on`, so a job is reported once when it finally fails, not on every attempt it retries itself. `GoodSorcery::DeliveryJob` is never reported;
+- wraps Active Job's `perform_now` outside the job's own `rescue_from`/`retry_on`, so a job is reported once when it finally fails, not on every attempt it retries itself;
 - wraps Action Cable channel subscribe, unsubscribe and actions; errors your channel's `rescue_from` handles are not reported;
 - records breadcrumbs from `ActiveSupport::Notifications` inside requests, jobs and channel actions: `start_processing.action_controller`, `sql.active_record` (without `SCHEMA`, `CACHE` and `TRANSACTION` queries; SQL capped at 1,000 chars, with quoted strings and numbers replaced by `?` so inlined values never leave the app), `perform.active_job` and `deliver.action_mailer`. Turn them off with `config.breadcrumbs = false`;
 - loads the `goodsorcery:verify` and `goodsorcery:test` tasks and reports exceptions that end a rake task.

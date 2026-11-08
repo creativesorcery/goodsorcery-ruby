@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Removed
+
+- The `:active_job` delivery: `GoodSorcery::DeliveryJob`, `config.active_job_queue` and `GoodSorcery::RetryableDeliveryError`. Use `:async` (the default). Errors raised in your own jobs are still reported, and jobs are still measured by performance monitoring.
+- Custom delivery objects (`config.delivery = <object responding to #deliver>`).
+- `config.delivery` now accepts only `:async`, `:sync` and `:test`; anything else, including `:active_job` or an object, raises `ArgumentError` from `GoodSorcery.configure` with a message saying what to use instead. Setting `config.active_job_queue` raises `NoMethodError`.
+
 ## 0.2.0 (2026-11-07)
 
 - **Performance monitoring** (opt-in, `config.performance_monitoring = true` or `GOODSORCERY_PERFORMANCE_MONITORING=1`). Records every Rails request and every Active Job and Sidekiq job: count, failures, total time and a shared log-scale histogram (`gs-v1`) with database, external HTTP, view and Ruby time per bucket, plus queue wait for jobs. Metrics are aggregated per transaction per minute in process and sent once a minute to `POST /api/v1/apm/metrics` from a background thread (`goodsorcery-apm`).

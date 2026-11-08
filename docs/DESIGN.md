@@ -18,8 +18,8 @@ Conclusions:
 2. **Batching pays off at volume.** One HTTPS request (with keep-alive and gzip) per batch instead of per event cuts TLS/HTTP overhead, server request-rate pressure and socket churn when an incident produces hundreds of errors a second. Nobody batches errors today mostly for historical reasons: their ingest APIs accept one event per request. We control the server, so we add a batch endpoint.
 3. **The queue must be bounded and drop rather than block**, and the worker must handle `429` (`Retry-After`) and `5xx` with backoff, re-using `event_id` for idempotent retries.
 4. **Fork safety matters** (Puma cluster, Unicorn, Sidekiq Enterprise swarm, Resque): threads don't survive `fork`, so the worker must start lazily and restart in a forked child.
-5. **A synchronous mode** is needed for short-lived processes (scripts, rake tasks, Lambda) and for debugging.
-6. **Job-based delivery** is still useful when an app insists on durable delivery via its existing queue, but it puts scrubbed error data into the job store, so it is opt-in, documented as such, and falls back to the background thread if enqueueing fails.
+5. **A synchronous mode** is needed for serverless and other short-lived processes (e.g. AWS Lambda) where a background thread doesn't get to run.
+6. **No job-based delivery.** It puts scrubbed error data into the job store and needs special cases so the delivery job never reports or measures itself, the problems that made Sentry deprecate it. The gem shipped an `:active_job` delivery and custom delivery objects up to 0.2.0 and removed both; the background thread, drained at exit, covers the same apps.
 7. **An in-memory test delivery** lets app test suites assert on reported errors without network.
 
 ## 2. Delivery options (`config.delivery`)
@@ -27,10 +27,10 @@ Conclusions:
 | Option | Behaviour | When to use |
 |---|---|---|
 | `:async` (default) | Events are built and filtered in the calling thread, then pushed onto a bounded in-memory queue. One background thread (`goodsorcery-worker`) sends them in **batches** to `POST /api/v1/events/batch` when `batch_size` events are waiting or `flush_interval` seconds have passed, whichever comes first. Keep-alive HTTP connection, gzip. Drops (and counts) events when the queue is full. Flushed at exit. | Web apps and job workers (almost everyone). |
-| `:sync` | Sends each event immediately to `POST /api/v1/events` in the calling thread, with short timeouts. | Scripts, rake tasks, serverless, debugging. |
-| `:active_job` | Enqueues `GoodSorcery::DeliveryJob` with the already-filtered event JSON; the job sends it synchronously and retries `429`/`5xx` with ActiveJob's `retry_on`. Falls back to `:async` if enqueueing raises. Errors raised inside the delivery job are never reported (no recursion). | Apps that want delivery to survive process crashes and already run a durable queue. **Note:** filtered event data is stored in the job backend (e.g. Redis). |
+| `:sync` | Sends each event immediately to `POST /api/v1/events` in the calling thread, with short timeouts. | Serverless and other short-lived processes where background threads don't run (e.g. AWS Lambda). Not for normal web apps: each report adds a round trip to the request. |
 | `:test` | Stores event hashes in memory (`GoodSorcery.test_events`). Never touches the network. Bypasses the environment check, because nothing leaves the process. | App test suites. |
-| any object | Must respond to `deliver(event_hash)`; may respond to `flush(timeout)` and `shutdown(timeout)`. | Custom transports. |
+
+`config.delivery=` accepts these three symbols (or their strings) and raises `ArgumentError` for anything else, at configuration time like every other invalid setting. For the removed `:active_job` and for objects responding to `#deliver` the message says the option was removed and to use `:async`; it names a rejected object's class only, never the object.
 
 Async tuning (all optional):
 
@@ -67,7 +67,7 @@ GoodSorcery.configure do |config|
   # config.use_rails_filter_parameters = true           # default: also apply Rails.application.config.filter_parameters
 
   # Delivery
-  config.delivery = :async   # :async (default), :sync, :active_job, :test, or a custom object
+  config.delivery = :async   # :async (default), :sync (serverless) or :test
   # config.batch_size = 25; config.flush_interval = 2.0; config.max_queue_size = 1_000
 
   # Everything else is optional.
@@ -217,7 +217,7 @@ end
 |---|---|---|
 | `performance_monitoring` | `false` (or `GOODSORCERY_PERFORMANCE_MONITORING`) | Records metrics for every request and job and flushes them once a minute. Read at `after_initialize`; turning it on later needs a restart. |
 | `performance_traces` | `true` | Also records timelines and sends the slowest per transaction per minute. `false` sends metrics only. |
-| `performance_ignore_transactions` | `["Rails::HealthController#show"]` | Names (exact strings) or regexps never recorded, neither metrics nor traces. `GoodSorcery::DeliveryJob` is always ignored. |
+| `performance_ignore_transactions` | `["Rails::HealthController#show"]` | Names (exact strings) or regexps never recorded, neither metrics nor traces. |
 
 Performance monitoring obeys the same gate as errors (`GoodSorcery.enabled?`, §3.2) and needs an API key: in a disabled environment nothing is subscribed, no thread starts and the per-request cost is one boolean check. `send_code_context` (§3) also governs the code lines sent with N+1 call sites. The `:test` delivery keeps payloads in memory instead of sending them (8.7). The generator's initializer template gains the two commented lines above, and goodsorcery_web's setup page shows the same snippet.
 
@@ -304,8 +304,8 @@ Placeholders such as `$1` (Postgres prepared statements) and identifiers stay re
 - **Exit:** `GoodSorcery.shutdown` (the existing `at_exit` hook) also flushes all minutes, including the open one (additive merging makes a partial minute safe), within `shutdown_timeout`.
 - **Fork safety:** the Aggregator, TraceBuffer and Flusher remember `Process.pid`. In a forked child they start empty (the parent keeps and sends what it recorded) and the thread starts again on first use, like the async delivery. A connection inherited from the parent is dropped, as `Transport::Connection` already does.
 - **Body limits:** a metrics flush is split into as many bodies as needed to stay under 450 KiB and 1,000 transactions per minute (each with its own `batch_id`; the server adds them up); trace bodies stay under 1.8 MiB, and each trace under about 64 KiB (its shortest spans are dropped, half at a time, and counted in `spans_dropped`).
-- **Deliveries:** performance monitoring runs with `:async`, `:sync`, `:active_job` and `:test`; with a custom delivery object it stays off (logged once).
-- **`:test` delivery:** nothing is sent; `GoodSorcery.flush_performance(include_open_minute: true)` (the default) builds the payloads synchronously into `GoodSorcery.test_performance_payloads` (`[{ "path" =>, "body" => Hash }]`), cleared by `clear_test_events`. `:sync`, `:async` and `:active_job` all use the Flusher thread (APM data never goes through Active Job).
+- **Deliveries:** performance monitoring runs with every delivery (`:async`, `:sync` and `:test`).
+- **`:test` delivery:** nothing is sent; `GoodSorcery.flush_performance(include_open_minute: true)` (the default) builds the payloads synchronously into `GoodSorcery.test_performance_payloads` (`[{ "path" =>, "body" => Hash }]`), cleared by `clear_test_events`. `:sync` and `:async` both use the Flusher thread.
 
 ### 8.8 Overhead budget
 

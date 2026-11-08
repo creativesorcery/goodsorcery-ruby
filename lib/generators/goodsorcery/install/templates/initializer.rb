@@ -27,7 +27,7 @@ GoodSorcery.configure do |config|
   # config.send_job_arguments = true                     # false = never send job arguments
 
   # --- Delivery --------------------------------------------------------------
-  # config.delivery = :async                             # :sync, :active_job, :test or a custom object
+  # config.delivery = :async                             # :sync (serverless, e.g. AWS Lambda) or :test
   # config.batch_size = 25
   # config.flush_interval = 2.0
   # config.max_queue_size = 1_000
@@ -35,7 +35,6 @@ GoodSorcery.configure do |config|
   # config.shutdown_timeout = 5
   # config.open_timeout = 2
   # config.read_timeout = 5
-  # config.active_job_queue = "default"                  # with delivery = :active_job
 
   # --- What gets reported ----------------------------------------------------
   # config.release = ENV["GIT_SHA"]                      # auto-detected from deploy env vars or REVISION
