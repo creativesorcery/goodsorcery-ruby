@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Security: SQL breadcrumbs are normalised with the same rules as performance traces, in the dialect of the connection. Before, a string ending in a backslash on Postgres or SQLite (`'C:\'`), or a quote inside a comment, could leave the next literal value (a token or an email) in the breadcrumb. Breadcrumb SQL now also has comments removed and `IN` lists collapsed.
+
 ## 0.3.0 (2026-11-07)
 
 - The `:active_job` delivery: `GoodSorcery::DeliveryJob`, `config.active_job_queue` and `GoodSorcery::RetryableDeliveryError`. Use `:async` (the default). Errors raised in your own jobs are still reported, and jobs are still measured by performance monitoring.

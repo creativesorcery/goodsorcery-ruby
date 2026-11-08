@@ -3,27 +3,28 @@
 module GoodSorcery
   module Integrations
     module Rails
-      # The SQL text recorded in a breadcrumb, with literal values replaced by
-      # "?": quoted strings (also dollar-quoted, and one cut off by the length
-      # cap) and numbers. Adapters that inline values instead of using bind
-      # parameters (mysql2, prepared_statements: false, sanitize_sql) would
-      # otherwise send emails, tokens or password digests unfiltered.
+      # The SQL text recorded in a breadcrumb: the performance normaliser
+      # (Performance::SqlNormalizer) applied with the connection's dialect,
+      # capped at MAX_LENGTH. Literal values become "?" and comments are
+      # removed. Adapters that inline values instead of using bind parameters
+      # (mysql2, prepared_statements: false, sanitize_sql) would otherwise
+      # send emails, tokens or password digests unfiltered. Sharing the
+      # normaliser means a backslash or a quote inside a comment is read the
+      # way the database reads it, and a misread never leaves a value behind.
       # Identifiers, keywords and placeholders such as $1 stay readable.
       class SqlStatement
         MAX_LENGTH = 1_000
-        # A dollar-quoted string ($$…$$, $tag$…$tag$) or a quoted one; the
-        # leftmost wins, so "$" inside a quoted string is not a dollar quote.
-        LITERAL = /\$((?:[a-z_]\w*)?)\$.*?(?:\$\1\$|\z)|'(?:[^'\\]|\\.|'')*(?:'|\z)/im
-        NUMBER = /(?<![\w$])\d+(?:\.\d+)?(?:e[+-]?\d+)?/i
-        PLACEHOLDER = "?"
+        NORMALIZER = Performance::SqlNormalizer.new.freeze
 
-        def initialize(sql)
-          @sql = sql.to_s
+        # +dialect+ is :postgres, :mysql, :sqlite or nil (unknown).
+        def initialize(sql, dialect = nil)
+          @sql = sql
+          @dialect = dialect
         end
 
-        # The first MAX_LENGTH characters, without literal values.
+        # At most MAX_LENGTH characters, without literal values or comments.
         def obfuscated
-          Text.limit(@sql, MAX_LENGTH).gsub(LITERAL, PLACEHOLDER).gsub(NUMBER, PLACEHOLDER)
+          Text.limit(NORMALIZER.normalize(@sql, @dialect), MAX_LENGTH)
         end
       end
     end

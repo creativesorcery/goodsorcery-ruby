@@ -52,7 +52,8 @@ module GoodSorcery
         def sql(payload, duration)
           return if payload[:cached] || IGNORED_SQL_NAMES.include?(payload[:name])
 
-          statement = SqlStatement.new(payload[:sql]).obfuscated
+          dialect = Performance::SqlDialect.for(payload[:connection])
+          statement = SqlStatement.new(payload[:sql], dialect).obfuscated
           GoodSorcery.add_breadcrumb("#{payload[:name] || "SQL"} (#{duration}ms)", category: "sql",
                                                                                    data: { "sql" => statement })
         end

@@ -67,8 +67,10 @@ ActiveJob::Base.logger = Logger.new(nil)
 class OrdersController < ActionController::Base
   def create
     GoodSorcery.context(order_ref: "A-1")
-    sql = "SELECT * FROM orders WHERE email = 'm@x.dev' LIMIT 1"
-    ActiveSupport::Notifications.instrument("sql.active_record", sql: sql, name: "Order Load")
+    # Literals written into the SQL by a Postgres connection, which reads 'C:\' as a whole string.
+    connection = Struct.new(:adapter_name).new("PostgreSQL")
+    sql = "SELECT * FROM orders WHERE dir = 'C:\\' AND email = 'm@x.dev' LIMIT 1"
+    ActiveSupport::Notifications.instrument("sql.active_record", sql: sql, name: "Order Load", connection: connection)
     ActiveSupport::Notifications.instrument("sql.active_record", sql: "PRAGMA table_info", name: "SCHEMA")
     session[:cart_id] = 5
     session[:auth_token] = "t0k"

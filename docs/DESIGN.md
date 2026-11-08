@@ -283,7 +283,7 @@ BOUNDS_MS = [
 def self.index(ms) = BOUNDS_MS.bsearch_index { _1 > ms } || 30
 ```
 
-**`SqlNormalizer#normalize(sql)`**, applied before anything leaves the process (an extension of the breadcrumb `SqlStatement` rules):
+**`SqlNormalizer#normalize(sql)`**, applied before anything leaves the process (also to SQL breadcrumbs, whose `SqlStatement` caps the result at 1,000 characters):
 
 1. Take the first 4,000 characters.
 2. Remove comments: `/* … */` (including Rails query-log and marginalia tags, which can carry request ids) and `-- …` to the end of the line.
