@@ -109,21 +109,41 @@ class ConfigurationTest < Minitest::Test
 
   def test_rejects_unknown_delivery
     error = assert_raises(ArgumentError) { config.delivery = :carrier_pigeon }
-    assert_match(/delivery must be one of :async, :sync, :test/, error.message)
+    assert_equal "delivery must be one of :async, :sync, :test (got :carrier_pigeon).", error.message
 
     holder = Struct.new(:api_key).new("gs_live_9f2c41aa77d0e81a")
     error = assert_raises(ArgumentError) { config.delivery = holder }
     refute_includes error.message, "9f2c41aa77d0"
+    assert_equal :async, config.delivery
   end
 
-  def test_accepts_delivery_strings_and_custom_objects
+  def test_rejects_the_removed_deliveries
+    [:active_job, "active_job"].each do |value|
+      error = assert_raises(ArgumentError) { config.delivery = value }
+      assert_match(/\Adelivery must be one of :async, :sync, :test \(got :active_job\)\. /, error.message)
+      assert_includes error.message, "The :active_job delivery was removed: use :async (the default)"
+    end
+
+    custom = Struct.new(:api_key) { def deliver(_event) = true }.new("gs_live_9f2c41aa77d0e81a")
+    error = assert_raises(ArgumentError) { config.delivery = custom }
+    assert_includes error.message, "Custom delivery objects are no longer supported"
+    refute_includes error.message, "9f2c41aa77d0"
+
+    refute_respond_to config, :active_job_queue=
+    assert_equal :async, config.delivery
+  end
+
+  def test_configure_raises_on_a_removed_delivery_and_keeps_the_previous_one
+    GoodSorcery.configure { |c| c.delivery = :test }
+
+    assert_raises(ArgumentError) { GoodSorcery.configure { |c| c.delivery = :active_job } }
+    assert_equal :test, GoodSorcery.configuration.delivery
+    assert_instance_of GoodSorcery::Delivery::Test, GoodSorcery.client.delivery
+  end
+
+  def test_accepts_delivery_strings
     config.delivery = "sync"
     assert_equal :sync, config.delivery
-
-    custom = Object.new
-    def custom.deliver(_event) = true
-    config.delivery = custom
-    assert_same custom, config.delivery
   end
 
   def test_rejects_batch_size_outside_server_limit
@@ -161,18 +181,14 @@ class ConfigurationTest < Minitest::Test
   end
 
   def test_configure_shuts_down_the_replaced_delivery
-    custom = Class.new do
-      attr_reader :shut_down
-
-      def deliver(_event) = true
-      def shutdown(_timeout) = (@shut_down = true)
-    end.new
-    GoodSorcery.configure { |c| c.delivery = custom }
-    GoodSorcery.client.delivery
+    GoodSorcery.configure { |c| c.delivery = :test }
+    replaced = GoodSorcery.client.delivery
+    replaced.define_singleton_method(:shutdown) { |_timeout| @shut_down = true }
 
     GoodSorcery.configure { |c| c.batch_size = 10 }
 
-    assert custom.shut_down
+    assert replaced.instance_variable_get(:@shut_down)
+    refute_same replaced, GoodSorcery.client.delivery
   end
 
   def test_replaced_transport_closes_after_the_delivery_drains_and_outside_the_lock

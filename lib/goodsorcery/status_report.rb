@@ -43,8 +43,7 @@ module GoodSorcery
     end
 
     def delivery_label
-      delivery = @config.delivery
-      delivery.is_a?(Symbol) ? delivery.to_s : delivery.class.name.to_s
+      @config.delivery.to_s
     end
   end
 end

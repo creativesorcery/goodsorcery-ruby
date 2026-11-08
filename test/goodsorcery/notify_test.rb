@@ -201,12 +201,8 @@ class NotifyTest < Minitest::Test
   end
 
   def test_queue_full_notify_returns_nil
-    dropping = Object.new
-    def dropping.deliver(_event) = false
-    GoodSorcery.configure do |config|
-      config.delivery = dropping
-      config.enabled = true
-    end
+    use_test_delivery
+    GoodSorcery.client.delivery.define_singleton_method(:deliver) { |_event| false }
 
     assert_nil GoodSorcery.notify(raise_and_rescue)
   end

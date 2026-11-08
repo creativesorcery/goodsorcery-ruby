@@ -60,18 +60,6 @@ class PerformanceGateTest < Minitest::Test
     refute Performance.install
   end
 
-  def test_a_custom_delivery_records_nothing
-    delivery = Object.new
-    def delivery.deliver(_event) = true
-    GoodSorcery.configure do |config|
-      config.performance_monitoring = true
-      config.delivery = delivery
-    end
-
-    refute Performance.install
-    assert_includes log_output, "performance monitoring needs the :async or :sync delivery"
-  end
-
   def test_an_enabled_environment_with_a_key_records
     GoodSorcery.configure do |config|
       config.performance_monitoring = true

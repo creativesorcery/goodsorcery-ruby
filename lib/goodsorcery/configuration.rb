@@ -121,9 +121,8 @@ module GoodSorcery
     # Never shows the API key (or endpoint credentials): consoles, error
     # pages and loggers print objects with #inspect.
     def inspect
-      delivery_name = delivery.is_a?(Symbol) ? delivery.inspect : delivery.class.name
       "#<#{self.class.name} api_key=#{masked_api_key} endpoint=#{endpoint_label} " \
-        "environment=#{environment} delivery=#{delivery_name}>"
+        "environment=#{environment} delivery=#{delivery.inspect}>"
     end
 
     private
@@ -192,15 +191,28 @@ module GoodSorcery
     end
   end
 
-  # Normalizes and validates config.delivery.
+  # Normalizes and validates config.delivery. The message names a rejected
+  # symbol but only the class of anything else, which may hold credentials.
   module DeliverySetting
+    REMOVED = {
+      active_job: "The :active_job delivery was removed: use :async (the default), " \
+                  "which sends events from a background thread."
+    }.freeze
+    CUSTOM_REMOVED = "Custom delivery objects are no longer supported: use :async (the default), " \
+                     ":sync in serverless functions or :test in your test suite."
+
     def self.normalize(value)
       symbol = value.is_a?(String) ? value.to_sym : value
       return symbol if Configuration::DELIVERIES.include?(symbol)
-      return value if !value.is_a?(Symbol) && value.respond_to?(:deliver)
 
-      raise ArgumentError, "delivery must be one of #{Configuration::DELIVERIES.map(&:inspect).join(", ")} " \
-                           "or an object responding to #deliver (got a #{value.class})"
+      raise ArgumentError, message(symbol, value)
+    end
+
+    def self.message(symbol, value)
+      got = symbol.is_a?(Symbol) ? symbol.inspect : "an instance of #{value.class}"
+      hint = symbol.is_a?(Symbol) ? REMOVED[symbol] : (CUSTOM_REMOVED if value.respond_to?(:deliver))
+      ["delivery must be one of #{Configuration::DELIVERIES.map(&:inspect).join(", ")} (got #{got}).", hint]
+        .compact.join(" ")
     end
   end
 end

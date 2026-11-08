@@ -138,15 +138,13 @@ class ControllerIntegrationTest < Minitest::Test
   end
 
   def test_a_disabled_environment_sends_nothing
-    delivered = []
-    recorder = Object.new
-    recorder.define_singleton_method(:deliver) { |event| delivered << event }
     GoodSorcery.configure do |config|
-      config.delivery = recorder
+      config.delivery = :async
+      config.api_key = "gs_test_abcdefabcdefabcd"
       config.environment = "test"
     end
     post_order
 
-    assert_empty delivered
+    assert_nil GoodSorcery.client.instance_variable_get(:@delivery)
   end
 end

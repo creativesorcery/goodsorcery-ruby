@@ -155,15 +155,13 @@ class RackMiddlewareTest < Minitest::Test
   end
 
   def test_disabled_environment_sends_nothing
-    delivered = []
-    recorder = Object.new
-    recorder.define_singleton_method(:deliver) { |event| delivered << event }
     GoodSorcery.configure do |config|
-      config.delivery = recorder
+      config.delivery = :async
+      config.api_key = "gs_test_abcdefabcdefabcd"
       config.environment = "development"
     end
     assert_raises(AppError) { request(stack { raise AppError }, "GET", "/") }
 
-    assert_empty delivered
+    assert_nil GoodSorcery.client.instance_variable_get(:@delivery)
   end
 end

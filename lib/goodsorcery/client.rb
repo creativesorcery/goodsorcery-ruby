@@ -4,7 +4,6 @@ module GoodSorcery
   # Wires configuration to the event pipeline and the delivery. One client
   # per process, built lazily; GoodSorcery.configure rebuilds its parts.
   class Client
-    NETWORK_DELIVERIES = %i[async sync].freeze
     REPORTING_KEY = :__goodsorcery_reporting
 
     attr_reader :config, :log
@@ -74,14 +73,11 @@ module GoodSorcery
     end
 
     # Whether performance monitoring may run (DESIGN.md 8.1): with the :test
-    # delivery, or a network delivery in an enabled environment with a key.
+    # delivery, or in an enabled environment with a key.
     def performance_allowed?
       return true if test_delivery?
-      return @gate.enabled? && !config.api_key.to_s.empty? if NETWORK_DELIVERIES.include?(config.delivery)
 
-      log.warn_once(:apm_custom_delivery,
-                    "performance monitoring needs the :async or :sync delivery; it is off")
-      false
+      @gate.enabled? && !config.api_key.to_s.empty?
     end
 
     def verify
@@ -166,7 +162,6 @@ module GoodSorcery
     end
 
     def credentials_present?
-      return true unless NETWORK_DELIVERIES.include?(config.delivery)
       return true unless config.api_key.to_s.empty?
 
       log.warn_once(:missing_api_key,
