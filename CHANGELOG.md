@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 (2026-11-08)
 
 - Performance traces also send the app-code layer as `app_ms` (the server's language-neutral protocol, revision 1.1), next to `ruby_ms`, which older servers read. Nothing else changes: runtimes still go out as `{ "ruby", "rails" }`, which every server version reads.
 - Security: SQL breadcrumbs are normalised with the same rules as performance traces, in the dialect of the connection. Before, a string ending in a backslash on Postgres or SQLite (`'C:\'`), or a quote inside a comment, could leave the next literal value (a token or an email) in the breadcrumb. Breadcrumb SQL now also has comments removed and `IN` lists collapsed.
