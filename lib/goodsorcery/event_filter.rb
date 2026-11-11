@@ -2,8 +2,9 @@
 
 module GoodSorcery
   # Applies the key filter, and any extra filters, to every part of an event
-  # that holds free-form data: request params, headers, session and URL query,
-  # job arguments, context, tags and breadcrumb data. The user section is left alone on
+  # that holds free-form data: request params, headers, session and URL query
+  # (also inside header values such as Referer and Origin), job arguments,
+  # context, tags and breadcrumb data. The user section is left alone on
   # purpose (DESIGN.md 3.4).
   #
   # Extra filters (config.extra_filters) are objects responding to
@@ -35,8 +36,20 @@ module GoodSorcery
     private
 
     def filter_request(request)
-      request["url"] = @key_filter.filter_url(request["url"], @extra_probe) if request["url"]
+      request["url"] = filter_url(request["url"]) if request["url"]
       REQUEST_SECTIONS.each { |name| filter_section(request, name) }
+      filter_header_urls(request)
+    end
+
+    # Referer, Origin and similar headers carry whole URLs: a Referer can
+    # hold the previous page's reset or invitation token in its query string.
+    def filter_header_urls(request)
+      headers = request["headers"]
+      request["headers"] = headers.transform_values { |value| filter_url(value) } if headers.is_a?(Hash)
+    end
+
+    def filter_url(url)
+      @key_filter.filter_url(url, @extra_probe)
     end
 
     # Arguments are often an array, so they are filtered inside a wrapper hash.

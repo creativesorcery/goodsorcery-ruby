@@ -253,6 +253,25 @@ class TransportTest < Minitest::Test
 
     assert_includes log_output, "uses plain HTTP"
   end
+
+  def test_does_not_warn_about_plain_http_on_this_machine
+    %w[http://localhost:3000 http://127.0.0.1:3000 http://[::1]:3000].each do |endpoint|
+      GoodSorcery::Transport.new(endpoint: endpoint, api_key: API_KEY, open_timeout: 1, read_timeout: 1,
+                                 log: captured_log)
+    end
+
+    refute_includes log_output, "plain HTTP"
+  end
+
+  def test_refuses_endpoints_other_than_http_urls_without_echoing_them
+    ["ftp://errors.example.com", "errors.example.com:8443", "https://user:s3cr3t@errors.example.com"].each do |value|
+      error = assert_raises(ArgumentError) do
+        GoodSorcery::Transport.new(endpoint: value, api_key: API_KEY, open_timeout: 1, read_timeout: 1,
+                                   log: captured_log)
+      end
+      refute_includes error.message, "s3cr3t"
+    end
+  end
 end
 
 class BatchChunksTest < Minitest::Test
@@ -314,6 +333,18 @@ class VerificationTest < Minitest::Test
     GoodSorcery.configure { |config| config.api_key = nil }
 
     refute_predicate GoodSorcery.verify, :ok?
+    assert_empty @server.requests
+  end
+
+  def test_malformed_goodsorcery_endpoint_fails_without_raising
+    GoodSorcery.configure { |config| config.endpoint = nil }
+
+    ["errors.example.com:8443", "ftp://#{URI(@server.endpoint).host}"].each do |value|
+      verification = with_env("GOODSORCERY_ENDPOINT" => value) { GoodSorcery.verify }
+
+      refute_predicate verification, :ok?
+      assert_includes verification.message, "GOODSORCERY_ENDPOINT is not an http:// or https:// URL"
+    end
     assert_empty @server.requests
   end
 end

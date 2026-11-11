@@ -2,15 +2,14 @@
 
 module GoodSorcery
   module Delivery
-    # The loop run by the goodsorcery-worker thread: take a batch, serialize
-    # it, send it, retry 5xx/network failures with backoff and wait out 429s
+    # The loop run by the goodsorcery-worker thread: take a batch of
+    # serialized events, send it, retry 5xx/network failures with backoff and wait out 429s
     # without spending a retry. It never raises and never reports its own
     # errors as events.
     class Worker
-      def initialize(queue:, transport:, serializer:, log:, settings:)
+      def initialize(queue:, transport:, log:, settings:)
         @queue = queue
         @transport = transport
-        @serializer = serializer
         @log = log
         @flush_interval = settings.fetch(:flush_interval)
         @max_retries = settings.fetch(:max_retries)
@@ -27,11 +26,10 @@ module GoodSorcery
         end
       end
 
-      def deliver_batch(events)
-        jsons = events.filter_map { |event| @serializer.dump(event) }
+      def deliver_batch(jsons)
         send_with_retries(jsons)
       rescue StandardError => e
-        @log.error("the delivery worker hit #{e.class}; #{events.size} event(s) dropped")
+        @log.error("the delivery worker hit #{e.class}; #{jsons.size} event(s) dropped")
       ensure
         @queue.batch_done
       end

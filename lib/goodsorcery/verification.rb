@@ -8,10 +8,12 @@ module GoodSorcery
 
     NO_KEY = "no API key configured (set GOODSORCERY_API_KEY or config.api_key)"
 
-    def self.run(config, transport)
+    # Yields for the transport only once the key and endpoint look usable.
+    def self.run(config)
       return new(false, NO_KEY) if config.api_key.to_s.empty?
+      return new(false, Configuration::INVALID_ENV_ENDPOINT) unless config.endpoint_valid?
 
-      from_result(transport.verify, config)
+      from_result(yield.verify, config)
     end
 
     def self.from_result(result, config)

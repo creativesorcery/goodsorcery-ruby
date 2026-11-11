@@ -209,6 +209,18 @@ class RakeTasksTest < Minitest::Test
     assert_equal "goodsorcery:test", @server.requests.first.json["transaction"]
   end
 
+  def test_goodsorcery_tasks_explain_a_malformed_goodsorcery_endpoint
+    GoodSorcery.configure { |config| config.endpoint = nil }
+
+    with_env("GOODSORCERY_ENDPOINT" => "errors.example.com:8443") do
+      %w[goodsorcery:verify goodsorcery:test].each do |task|
+        assert_raises(SystemExit) { capture_io { @rake[task].invoke } }
+      end
+      assert_match(/GOODSORCERY_ENDPOINT is not an http/, capture_io { GoodSorcery::Tasks.send_test_event }.first)
+    end
+    assert_empty @server.requests
+  end
+
   def test_goodsorcery_verify_aborts_on_failure
     @server.handler = ->(_request) { [401, {}, "{}"] }
 

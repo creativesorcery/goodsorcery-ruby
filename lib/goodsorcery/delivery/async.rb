@@ -6,9 +6,16 @@ module GoodSorcery
     # one background thread ("goodsorcery-worker"). The thread starts on the
     # first event and restarts in a forked child, which starts with an empty
     # queue (the parent still owns the events it queued).
+    #
+    # Events are serialized in the calling thread, so the queue holds JSON
+    # strings: an event over the server's 512 KiB limit is dropped before it
+    # is queued, and the queue is bounded by bytes (max_queue_bytes) as well
+    # as by count (max_queue_size). When either limit is reached the newest
+    # event is dropped.
     class Async
+      MAX_QUEUE_BYTES = 16 * 1024 * 1024
       DEFAULTS = {
-        batch_size: 25, flush_interval: 2.0, max_queue_size: 1_000,
+        batch_size: 25, flush_interval: 2.0, max_queue_size: 1_000, max_queue_bytes: MAX_QUEUE_BYTES,
         max_retries: 3, shutdown_timeout: 5, backoff: nil, sleeper: nil
       }.freeze
 
@@ -25,11 +32,13 @@ module GoodSorcery
       end
 
       def deliver(event)
-        ensure_worker
-        return true if @queue.push(event)
+        json = @serializer.dump(event)
+        return false unless json
 
-        @log.warn_every(:queue_full, 60, "queue full (max_queue_size #{@settings[:max_queue_size]}); " \
-                                         "#{@queue.dropped} event(s) dropped so far")
+        ensure_worker
+        return true if @queue.push(json)
+
+        log_queue_full
         false
       end
 
@@ -92,12 +101,21 @@ module GoodSorcery
       end
 
       def build_worker
-        Worker.new(queue: @queue, transport: @transport, serializer: @serializer, log: @log,
+        Worker.new(queue: @queue, transport: @transport, log: @log,
                    settings: @settings.slice(:flush_interval, :max_retries, :backoff, :sleeper))
       end
 
       def new_queue
-        EventQueue.new(max_size: @settings[:max_queue_size], batch_size: @settings[:batch_size])
+        EventQueue.new(max_size: @settings[:max_queue_size], max_bytes: @settings[:max_queue_bytes],
+                       batch_size: @settings[:batch_size])
+      end
+
+      # One line a minute, whichever limit was reached.
+      def log_queue_full
+        mib = @settings[:max_queue_bytes] / 1_048_576.0
+        @log.warn_every(:queue_full, 60, "queue full (max_queue_size #{@settings[:max_queue_size]} " \
+                                         "or #{format("%g", mib)} MiB of events); newest events are dropped, " \
+                                         "#{@queue.dropped} so far")
       end
 
       # Counted before the queue closes: once closed, the worker drops what is left.

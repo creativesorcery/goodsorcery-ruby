@@ -2,17 +2,21 @@
 
 module GoodSorcery
   module Delivery
-    # A bounded queue between the app's threads and the delivery worker.
-    # push never blocks: when the queue is full the event is dropped and
-    # counted. The worker takes batches and reports when each is done, so
-    # wait_until_idle can tell when everything queued has been handled.
+    # A bounded queue of serialized events (JSON strings) between the app's
+    # threads and the delivery worker. push never blocks: when the queue
+    # already holds max_size events, or the new one would take it past
+    # max_bytes, the new event is dropped and counted. The worker takes
+    # batches and reports when each is done, so wait_until_idle can tell
+    # when everything queued has been handled.
     class EventQueue
       attr_reader :dropped
 
-      def initialize(max_size:, batch_size:)
+      def initialize(max_size:, batch_size:, max_bytes: Float::INFINITY)
         @max_size = max_size
+        @max_bytes = max_bytes
         @batch_size = batch_size
         @items = []
+        @bytes = 0
         @in_flight = 0
         @dropped = 0
         @closed = false
@@ -23,11 +27,12 @@ module GoodSorcery
         @wakeup = ConditionVariable.new
       end
 
-      def push(event)
+      def push(json)
         @mutex.synchronize do
-          next reject if @closed || @items.size >= @max_size
+          next reject if @closed || full?(json.bytesize)
 
-          @items << event
+          @items << json
+          @bytes += json.bytesize
           @arrived.signal if @items.size == 1 || @items.size >= @batch_size
           true
         end
@@ -41,6 +46,7 @@ module GoodSorcery
           @arrived.wait(@mutex) while @items.empty? && !@closed
           wait_for_full_batch(interval)
           batch = @items.shift(@batch_size)
+          @bytes -= batch.sum(&:bytesize)
           @in_flight = batch.size
           batch
         end
@@ -88,7 +94,16 @@ module GoodSorcery
         @mutex.synchronize { @items.size + @in_flight }
       end
 
+      # Bytes of the events waiting to be taken (not counting a batch in flight).
+      def bytes
+        @mutex.synchronize { @bytes }
+      end
+
       private
+
+      def full?(incoming_bytes)
+        @items.size >= @max_size || @bytes + incoming_bytes > @max_bytes
+      end
 
       def reject
         @dropped += 1

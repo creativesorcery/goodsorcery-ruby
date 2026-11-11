@@ -74,6 +74,33 @@ class AsyncDeliveryTest < Minitest::Test
     assert_includes log_output, "queue full"
   end
 
+  def test_drops_the_newest_events_once_the_queue_holds_max_queue_bytes
+    gate = Queue.new
+    transport = FakeTransport.new(gate: gate)
+    async = delivery(transport, batch_size: 1, max_queue_size: 100, max_queue_bytes: 2_500, flush_interval: 30)
+    async.deliver(event("in-flight"))
+    assert(wait_until { gate.num_waiting == 1 })
+
+    results = %w[a b c d].map { |id| async.deliver(event(id).merge("padding" => "x" * 1_000)) }
+    gate.close
+    assert async.flush(2)
+
+    assert_equal [true, true, false, false], results
+    assert_equal 2, async.dropped_count
+    assert_equal %w[in-flight a b], transport.delivered_ids
+    assert_equal 1, log_output.scan("queue full").size
+  end
+
+  def test_serializes_in_the_calling_thread_and_never_queues_oversized_events
+    transport = FakeTransport.new
+    async = delivery(transport, flush_interval: 0.01)
+
+    refute async.deliver(event.merge("blob" => "x" * 600_000))
+    assert_equal 0, async.queue_size
+    refute_predicate async, :running?
+    assert_includes log_output, "limit 512 KiB"
+  end
+
   def test_retries_retryable_failures_with_backoff
     transport = FakeTransport.new(:retryable, :retryable)
     async = delivery(transport, max_retries: 3, flush_interval: 0.01)
@@ -267,6 +294,19 @@ class EventQueueTest < Minitest::Test
     queue.close
 
     assert_empty queue.take_batch(1)
-    refute queue.push({})
+    refute queue.push("{}")
+  end
+
+  def test_counts_queued_bytes_and_releases_them_when_a_batch_is_taken
+    queue = GoodSorcery::Delivery::EventQueue.new(max_size: 10, batch_size: 2, max_bytes: 10)
+
+    assert queue.push("12345")
+    assert queue.push("1234")
+    refute queue.push("12"), "11 bytes would exceed max_bytes"
+    assert_equal 9, queue.bytes
+    assert_equal 2, queue.take_batch(0).size
+    assert_equal 0, queue.bytes
+    assert queue.push("1234567890")
+    assert_equal 1, queue.dropped
   end
 end

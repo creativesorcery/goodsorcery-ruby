@@ -100,6 +100,15 @@ class ConfigurationTest < Minitest::Test
     assert_equal "https://errors.example.com/tracker", config.endpoint
   end
 
+  def test_applies_the_endpoint_setter_rules_to_goodsorcery_endpoint
+    ["ftp://app.goodsorcery.com", "errors.example.com:8443", "app.goodsorcery.com",
+     "https://user:s3cr3t@errors.example.com", "http://exa mple.com"].each do |value|
+      with_env("GOODSORCERY_ENDPOINT" => value) { refute_predicate config, :endpoint_valid?, value }
+    end
+    with_env("GOODSORCERY_ENDPOINT" => "http://localhost:3000") { assert_predicate config, :endpoint_valid? }
+    assert_predicate config, :endpoint_valid?
+  end
+
   def test_endpoint_label_hides_credentials_from_the_environment
     with_env("GOODSORCERY_ENDPOINT" => "https://user:s3cr3t@errors.example.com") do
       assert_equal "https://errors.example.com", config.endpoint_label

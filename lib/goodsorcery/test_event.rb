@@ -17,6 +17,7 @@ module GoodSorcery
 
     def send_now
       return Outcome.new(false, nil, "no API key configured") if @client.config.api_key.to_s.empty?
+      return Outcome.new(false, nil, Configuration::INVALID_ENV_ENDPOINT) unless @client.config.endpoint_valid?
 
       raise TestError, MESSAGE
     rescue TestError => e

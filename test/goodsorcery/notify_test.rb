@@ -43,6 +43,31 @@ class NotifyTest < Minitest::Test
     assert_equal 1, log_output.scan("no API key configured").size
   end
 
+  def test_invalid_goodsorcery_endpoint_disables_network_delivery_with_one_warning
+    GoodSorcery.configure do |config|
+      config.environment = "production"
+      config.api_key = "gs_live_abcdefabcdefabcd"
+    end
+
+    with_env("GOODSORCERY_ENDPOINT" => "ftp://app.goodsorcery.com") do
+      assert_nil GoodSorcery.notify(raise_and_rescue)
+      assert_nil GoodSorcery.notify(raise_and_rescue)
+    end
+    assert_nil GoodSorcery.client.instance_variable_get(:@delivery)
+    assert_equal 1, log_output.scan("GOODSORCERY_ENDPOINT is not an http:// or https:// URL").size
+  end
+
+  def test_test_events_never_builds_a_network_delivery
+    GoodSorcery.configure { |config| config.api_key = "gs_live_abcdefabcdefabcd" }
+
+    with_env("GOODSORCERY_ENDPOINT" => "ftp://app.goodsorcery.com") do
+      assert_equal [], GoodSorcery.test_events
+      GoodSorcery.clear_test_events
+    end
+    assert_nil GoodSorcery.client.instance_variable_get(:@delivery)
+    assert_nil GoodSorcery.client.instance_variable_get(:@transport)
+  end
+
   def test_ignores_listed_classes_and_their_subclasses
     use_test_delivery { |config| config.ignore_exceptions += ["NotifyTest::IgnoredError"] }
 

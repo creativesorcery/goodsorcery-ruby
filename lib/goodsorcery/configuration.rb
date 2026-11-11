@@ -12,6 +12,8 @@ module GoodSorcery
     include PerformanceSettings
 
     DELIVERIES = %i[async sync test].freeze
+    INVALID_ENV_ENDPOINT = "GOODSORCERY_ENDPOINT is not an http:// or https:// URL with a host " \
+                           "and no user:password part"
     DELIVERY_SETTINGS = %i[
       delivery api_key endpoint batch_size flush_interval max_queue_size shutdown_timeout
       max_retries open_timeout read_timeout
@@ -50,6 +52,13 @@ module GoodSorcery
 
     def endpoint
       (@endpoint || EnvFlag.present("GOODSORCERY_ENDPOINT") || Defaults::ENDPOINT).to_s.chomp("/")
+    end
+
+    # config.endpoint= refuses anything but an http(s) URL with a host and no
+    # credentials; this applies the same rule to GOODSORCERY_ENDPOINT, which
+    # is read as is. Nothing is sent while it is false.
+    def endpoint_valid?
+      Validation.http_url?(endpoint)
     end
 
     # The endpoint without any user:password part, for logs and reports.

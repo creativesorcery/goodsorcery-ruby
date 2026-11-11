@@ -168,6 +168,21 @@ class EventFilterTest < Minitest::Test
                  filtered["request"]["url"]
   end
 
+  def test_filters_query_strings_inside_header_values
+    event_filter = GoodSorcery::EventFilter.new(GoodSorcery::KeyFilter.new(GoodSorcery::Defaults::FILTER_PARAMS),
+                                                [DeepFilter.new("pin")])
+    headers = {
+      "Referer" => "https://x.dev/users/password/edit?reset_password_token=XYZ&locale=en",
+      "Origin" => "https://x.dev/start?pin=1234",
+      "Accept" => "text/html"
+    }
+    filtered = event_filter.filter_event({ "request" => { "headers" => headers } })["request"]["headers"]
+
+    assert_equal "https://x.dev/users/password/edit?reset_password_token=[FILTERED]&locale=en", filtered["Referer"]
+    assert_equal "https://x.dev/start?pin=[FILTERED]", filtered["Origin"]
+    assert_equal "text/html", filtered["Accept"]
+  end
+
   def test_extra_filter_probe_follows_nested_paths
     probe = GoodSorcery::ExtraFilterProbe.new([DeepFilter.new("pin")])
 

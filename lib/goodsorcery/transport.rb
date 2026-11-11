@@ -14,7 +14,16 @@ module GoodSorcery
     VERIFY_PATH = "/api/v1/verify"
     GZIP_MIN_BYTES = 1_024
 
+    LOCAL_HOSTS = %w[localhost 127.0.0.1 ::1].freeze
+
+    # Raises ArgumentError for anything but an http(s) URL with a host and no
+    # credentials (the message never shows the value), so the key is never
+    # sent over another scheme. Configuration#endpoint_valid? checks first.
     def initialize(endpoint:, api_key:, open_timeout:, read_timeout:, log:)
+      unless Configuration::Validation.http_url?(endpoint)
+        raise ArgumentError, "endpoint must be an http:// or https:// URL with a host and no user:password part"
+      end
+
       @uri = URI(endpoint)
       @api_key = api_key.to_s
       @timeouts = { open_timeout: open_timeout, read_timeout: read_timeout }
@@ -158,7 +167,7 @@ module GoodSorcery
     end
 
     def path(name)
-      "#{@uri.path.chomp("/")}#{name}"
+      "#{@uri.path.to_s.chomp("/")}#{name}"
     end
 
     def log_result(result, count)
@@ -180,9 +189,9 @@ module GoodSorcery
     end
 
     def warn_about_plain_http
-      return unless @uri.scheme == "http" && !%w[localhost 127.0.0.1 ::1].include?(@uri.host)
+      return unless @uri.scheme == "http" && !LOCAL_HOSTS.include?(@uri.hostname)
 
-      @log.warn_once(:plain_http, "endpoint #{@uri.host} uses plain HTTP; the API key is sent unencrypted")
+      @log.warn_once(:plain_http, "endpoint #{@uri.hostname} uses plain HTTP; the API key is sent unencrypted")
     end
   end
 end

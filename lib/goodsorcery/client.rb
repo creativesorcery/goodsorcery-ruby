@@ -35,7 +35,7 @@ module GoodSorcery
     def reporting?
       return true if test_delivery?
 
-      @gate.enabled? && credentials_present?
+      @gate.enabled? && credentials_present? && endpoint_valid?
     end
 
     def enabled?
@@ -77,19 +77,23 @@ module GoodSorcery
     def performance_allowed?
       return true if test_delivery?
 
-      @gate.enabled? && !config.api_key.to_s.empty?
+      @gate.enabled? && !config.api_key.to_s.empty? && endpoint_valid?
     end
 
     def verify
-      Verification.run(config, transport)
+      Verification.run(config) { transport }
     end
 
+    # Only looks at the delivery with config.delivery = :test, so asking never
+    # builds a network delivery (and its transport) as a side effect.
     def test_events
+      return [] unless test_delivery?
+
       delivery.is_a?(Delivery::Test) ? delivery.events : []
     end
 
     def clear_test_events
-      delivery.clear if delivery.is_a?(Delivery::Test)
+      delivery.clear if test_delivery? && delivery.is_a?(Delivery::Test)
     end
 
     # The replaced delivery drains first, then its transport closes, both
@@ -166,6 +170,13 @@ module GoodSorcery
 
       log.warn_once(:missing_api_key,
                     "no API key configured (GOODSORCERY_API_KEY or config.api_key); errors are not sent")
+      false
+    end
+
+    def endpoint_valid?
+      return true if config.endpoint_valid?
+
+      log.warn_once(:invalid_endpoint, "#{Configuration::INVALID_ENV_ENDPOINT}; errors are not sent")
       false
     end
 
