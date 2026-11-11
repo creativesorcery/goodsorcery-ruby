@@ -2,14 +2,16 @@
 
 The Ruby client for the [Good Sorcery](https://app.goodsorcery.com) error tracker. It reports exceptions from Ruby and Rails apps without slowing them down:
 
-- Events are built and filtered in the calling thread, then handed to **one background thread** that sends them in **batches** over a keep-alive, gzip-compressed HTTPS connection.
+- Events are built, filtered and serialized in the calling thread, then handed to **one background thread** that sends them in **batches** over a keep-alive, gzip-compressed HTTPS connection.
 - Sensitive data is **filtered in-process** before anything leaves your app (the server scrubs again as a second layer).
 - The queue is bounded and **drops rather than blocks** when it is full. Rate limits (`429` + `Retry-After`) and server errors are retried with backoff.
-- It has no runtime dependencies (standard library only). It needs Ruby 3.2 or newer and works with or without Rails.
+- Its only runtime dependency is the `logger` gem (part of Ruby, but no longer loaded by default since Ruby 4.0). It needs Ruby 3.2 or newer and works with or without Rails.
 - Rails, Rack/Sinatra, Active Job, Action Mailer, Action Cable, Sidekiq and Rake are covered out of the box (see [Integrations](#integrations)).
 - Optional, opt-in [performance monitoring](#performance-monitoring) for Rails apps: response times of every request and job, and timelines of the slowest ones.
 
 ## Installation
+
+By default the gem sends events to the hosted service at [app.goodsorcery.com](https://app.goodsorcery.com). Sign up, create a project and copy its API key from the project's **Setup** page. (Running your own server? Install the same way, then see [Self-hosted servers](#self-hosted-servers).)
 
 ```ruby
 # Gemfile
@@ -18,16 +20,21 @@ gem "goodsorcery"
 
 ```sh
 bundle install
-export GOODSORCERY_API_KEY=gs_live_...   # or use Rails credentials, see below
 ```
 
-In a Rails app, run the generator. It writes `config/initializers/goodsorcery.rb` (every option, commented out) and, with `--api-key`, stores the key in your encrypted credentials. It never prints the key.
+Give your app the key through the `GOODSORCERY_API_KEY` environment variable, set wherever your deploy keeps secrets (Kamal secrets, your platform's config vars and so on), or through Rails credentials (see [Credentials](#credentials)).
+
+In a Rails app, run the generator. It writes `config/initializers/goodsorcery.rb`, which reads the key from `GOODSORCERY_API_KEY` (and falls back to Rails credentials) and lists every other option, commented out:
 
 ```sh
-bin/rails generate goodsorcery:install --api-key=gs_live_...
+bin/rails generate goodsorcery:install
 ```
 
-Outside Rails, `require "goodsorcery"` and call `GoodSorcery.configure` once at boot.
+The generator also takes an optional `--api-key=gs_live_...`, which stores the key in your encrypted credentials without printing it. A key typed on the command line stays in your shell history, though, so prefer the environment variable or `bin/rails credentials:edit`.
+
+Outside Rails, `require "goodsorcery"` and call `GoodSorcery.configure` once at boot (see [Rack and Sinatra](#rack-and-sinatra)).
+
+Then check the setup with `bin/rails goodsorcery:verify` (sends nothing) and send a test error with `bin/rails goodsorcery:test` (see [Install check](#install-check)).
 
 ## Reporting errors
 
@@ -67,8 +74,7 @@ The same exception object is only reported once, even when several integrations 
 ```ruby
 # config/initializers/goodsorcery.rb
 GoodSorcery.configure do |config|
-  config.api_key  = Rails.application.credentials.dig(:goodsorcery, :api_key)
-  config.endpoint = "https://errors.example.com"
+  config.api_key = ENV["GOODSORCERY_API_KEY"].presence   # the generator's default
   config.filter_params += %i[card_token]
 end
 ```
@@ -78,7 +84,7 @@ Change settings inside `GoodSorcery.configure`: it recompiles the filters and re
 | Setting | Default | Notes |
 |---|---|---|
 | `api_key` | `ENV["GOODSORCERY_API_KEY"]`, then `Rails.application.credentials.dig(:goodsorcery, :api_key)` | Per-environment ingest key. Never logged in full (`inspect` shows it masked). A missing key disables delivery with one warning. |
-| `endpoint` | `ENV["GOODSORCERY_ENDPOINT"]` or `https://app.goodsorcery.com` | Your self-hosted URL (`http://` or `https://`; credentials in the URL are refused). `http://` is fine for localhost. |
+| `endpoint` | `ENV["GOODSORCERY_ENDPOINT"]`, else `https://app.goodsorcery.com` | Defaults to the hosted service; set it only for a self-hosted server (see [Self-hosted servers](#self-hosted-servers)). Must be an `http://` or `https://` URL with a host and no credentials, whether set here or in the environment. |
 | `environment` | `ENV["GOODSORCERY_ENV"]`, `Rails.env`, `RACK_ENV`, `APP_ENV`, else `"development"` | Used for gating only; the server takes the environment from the key. |
 | `disabled_environments` | `%w[development test]` | Environments that don't report. |
 | `enabled_environments` | `nil` | Allow-list; when set, only these report. |
@@ -102,7 +108,7 @@ Change settings inside `GoodSorcery.configure`: it recompiles the filters and re
 | `delivery` | `:async` | `:async`, `:sync` or `:test`; see [Delivery](#delivery). |
 | `batch_size` | `25` | Events per request, 1–100. |
 | `flush_interval` | `2.0` s | Longest an event waits in the queue. |
-| `max_queue_size` | `1_000` | Events beyond this are dropped and counted. |
+| `max_queue_size` | `1_000` | Events beyond this are dropped and counted. The queue also holds at most 16 MiB of serialized events; past that, new events are dropped too. |
 | `max_retries` | `3` | For `5xx`/network failures (exponential backoff with jitter, capped at 60 s). |
 | `shutdown_timeout` | `5` s | How long the exit hook waits for the queue to drain. |
 | `open_timeout` / `read_timeout` | `2` s / `5` s | HTTP timeouts (writes use `read_timeout`). |
@@ -114,7 +120,7 @@ Change settings inside `GoodSorcery.configure`: it recompiles the filters and re
 
 | `config.delivery` | What it does | When to use |
 |---|---|---|
-| `:async` (default) | Pushes events onto a bounded in-memory queue. One background thread (`goodsorcery-worker`) sends them to `POST /api/v1/events/batch` when `batch_size` events are waiting or `flush_interval` has passed. Restarts after `fork`; drains at exit. | Web apps and job workers (almost everyone). |
+| `:async` (default) | Serializes each event in the calling thread (events over the server's 512 KiB limit are dropped there) and pushes it onto an in-memory queue bounded by count and bytes. One background thread (`goodsorcery-worker`) sends them to `POST /api/v1/events/batch` when `batch_size` events are waiting or `flush_interval` has passed. Restarts after `fork`; drains at exit. | Web apps and job workers (almost everyone). |
 | `:sync` | Sends each event in the calling thread, before `notify` returns. | Serverless functions and other short-lived processes where a background thread doesn't get to run, such as AWS Lambda (the process is frozen between invocations). **Not for normal web apps:** every report adds an HTTPS round trip to the request that hit the error. |
 | `:test` | Keeps events in memory (`GoodSorcery.test_events`). Never touches the network and ignores the environment check. | Your app's test suite. |
 
@@ -148,7 +154,7 @@ Logs and the install check only ever show a masked key, such as `gs_live_…e81a
 
 ## Filtering
 
-Filtering applies at any depth to request params, headers, session, the URL query string, job arguments, context, tags and breadcrumb data. The `user` section (`id`, `email`, `username`, `name`) is sent as given, because it identifies affected users; only set the fields you want sent.
+Filtering applies at any depth to request params, headers, session, the URL query string (and query strings inside header values such as `Referer` and `Origin`), job arguments, context, tags and breadcrumb data. The `user` section (`id`, `email`, `username`, `name`) is sent as given, because it identifies affected users; only set the fields you want sent.
 
 The defaults mirror Rails' generated `filter_parameters` plus the server's scrub list:
 
@@ -270,11 +276,11 @@ The gem can also run that check after every `bundle install`. It's a Bundler plu
 It never fails or blocks `bundle install`: problems are printed as single `[goodsorcery]` lines.
 
 ```
-[goodsorcery] endpoint:    https://errors.example.com
+[goodsorcery] endpoint:    https://app.goodsorcery.com
 [goodsorcery] environment: development (reporting disabled: environment "development" is in disabled_environments)
 [goodsorcery] delivery:    async
 [goodsorcery] api key:     gs_test_…e81a
-[goodsorcery] verify:      ok, API key gs_test_…e81a is valid for environment "staging" at https://errors.example.com
+[goodsorcery] verify:      ok, API key gs_test_…e81a is valid for environment "staging" at https://app.goodsorcery.com
 ```
 
 The same checks run on demand. Rails apps get the tasks automatically; elsewhere, add `require "goodsorcery/tasks"` to your Rakefile.
@@ -301,7 +307,27 @@ The `:test` delivery ignores the environment check, stores the filtered event ha
 
 ## Self-hosted servers
 
-Point `endpoint` (or `GOODSORCERY_ENDPOINT`) at your instance, for example `https://errors.example.com`. A path prefix such as `https://example.com/tracker` is kept. Servers without the batch endpoint (`404`) are detected once, and the gem then sends one event per request. A batch refused as too large (`413`, for example by a proxy with a smaller body limit) is split in halves and resent.
+The server is open source: [creativesorcery/goodsorcery_web](https://github.com/creativesorcery/goodsorcery_web). Get an API key from your project's Setup page on your own instance, then point the gem at it with an environment variable:
+
+```sh
+export GOODSORCERY_ENDPOINT=https://errors.example.com
+```
+
+or in the initializer (this wins over the environment variable):
+
+```ruby
+GoodSorcery.configure do |config|
+  config.endpoint = "https://errors.example.com"
+end
+```
+
+- The value must be an `http://` or `https://` URL with a host and no `user:password@` part. `config.endpoint=` raises `ArgumentError` otherwise. A `GOODSORCERY_ENDPOINT` that breaks these rules turns delivery off with one warning, and `goodsorcery:verify` explains why; the gem never falls back to the hosted service with your key.
+- A path prefix such as `https://example.com/tracker` is kept.
+- Use `https://`. With `http://` the API key and every event cross the network unencrypted; the gem logs a warning unless the host is `localhost`, `127.0.0.1` or `::1`.
+- TLS certificates are always verified (`OpenSSL::SSL::VERIFY_PEER`) and verification can't be turned off. A certificate from a public CA, such as Let's Encrypt, just works. For a private or self-signed CA, add it to the system's trust store, or point OpenSSL at it with the `SSL_CERT_FILE` (a PEM bundle) or `SSL_CERT_DIR` environment variable in the app's environment.
+- Servers without the batch endpoint (`404`) are detected once, and the gem then sends one event per request. A batch refused as too large (`413`, for example by a proxy with a smaller body limit) is split in halves and resent.
+
+The wire format, for writing a client in another language, is in the server's [INGEST_API.md](https://github.com/creativesorcery/goodsorcery_web/blob/main/docs/INGEST_API.md).
 
 ## Extension points
 
@@ -313,6 +339,8 @@ These are for integrations and advanced setups:
 - `scope.enricher`: an object responding to `enrich(scope)`, run once, just before the first event in that scope is built. Integrations use it to fill in `scope.request`, `scope.job`, `scope.user` and `scope.transaction` only when something is reported. `scope.job` takes the `job` section's fields (see [Integrations](#integrations)).
 
 ## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report security issues privately, as described in [SECURITY.md](SECURITY.md), not in public issues.
 
 ```sh
 bin/setup              # bundle install, then the whole test suite

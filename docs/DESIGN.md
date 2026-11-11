@@ -1,6 +1,6 @@
 # goodsorcery (Ruby client): design
 
-The `goodsorcery` gem reports exceptions from Ruby and Rails apps to a Good Sorcery error tracker (`../goodsorcery_web`). The payload it sends is specified in `goodsorcery_web/docs/INGEST_API.md`. This document is the binding blueprint for the gem and for the server changes made alongside it.
+The `goodsorcery` gem reports exceptions from Ruby and Rails apps to a Good Sorcery error tracker ([goodsorcery_web](https://github.com/creativesorcery/goodsorcery_web)). The payload it sends is specified in the server's [INGEST_API.md](https://github.com/creativesorcery/goodsorcery_web/blob/main/docs/INGEST_API.md). This document records the gem's design and the reasoning behind it, along with the server features it relies on. Read it before changing delivery, filtering or the wire format.
 
 ## 1. Research: how other error-tracking gems deliver events
 
@@ -15,7 +15,7 @@ The `goodsorcery` gem reports exceptions from Ruby and Rails apps to a Good Sorc
 Conclusions:
 
 1. **The best default is an in-process, bounded, non-blocking background thread.** It costs the request nothing, needs no infrastructure, survives the job system being down, and every major gem converged on it (Sentry moved *away* from job-based delivery).
-2. **Batching pays off at volume.** One HTTPS request (with keep-alive and gzip) per batch instead of per event cuts TLS/HTTP overhead, server request-rate pressure and socket churn when an incident produces hundreds of errors a second. Nobody batches errors today mostly for historical reasons: their ingest APIs accept one event per request. We control the server, so we add a batch endpoint.
+2. **Batching pays off at volume.** One HTTPS request (with keep-alive and gzip) per batch instead of per event cuts TLS/HTTP overhead, server request-rate pressure and socket churn when an incident produces hundreds of errors a second. Nobody batches errors today mostly for historical reasons: their ingest APIs accept one event per request. The Good Sorcery server is developed alongside the gem, so it has a batch endpoint.
 3. **The queue must be bounded and drop rather than block**, and the worker must handle `429` (`Retry-After`) and `5xx` with backoff, re-using `event_id` for idempotent retries.
 4. **Fork safety matters** (Puma cluster, Unicorn, Sidekiq Enterprise swarm, Resque): threads don't survive `fork`, so the worker must start lazily and restart in a forked child.
 5. **A synchronous mode** is needed for serverless and other short-lived processes (e.g. AWS Lambda) where a background thread doesn't get to run.
@@ -38,7 +38,7 @@ Async tuning (all optional):
 |---|---|---|
 | `batch_size` | `25` | Events per request (server maximum 100). |
 | `flush_interval` | `2.0` s | Longest an event waits before being sent. |
-| `max_queue_size` | `1_000` | Events held in memory; beyond this new events are dropped and counted. |
+| `max_queue_size` | `1_000` | Events held in memory; beyond this new events are dropped and counted. Events are serialized before they are queued (an event over 512 KiB is dropped then), and the queue also holds at most 16 MiB of JSON (`Delivery::Async::MAX_QUEUE_BYTES`): past either limit the newest event is dropped, with one rate-limited warning. |
 | `shutdown_timeout` | `5` s | How long `at_exit` waits to drain the queue. |
 | `max_retries` | `3` | Retries for a batch on `5xx`/network errors (exponential backoff with jitter, capped at 60 s). `429` pauses the worker until `Retry-After` passes and does not consume a retry. |
 
@@ -49,9 +49,11 @@ Async tuning (all optional):
 GoodSorcery.configure do |config|
   # Credentials. Default lookup order: ENV["GOODSORCERY_API_KEY"], then
   # Rails.application.credentials.dig(:goodsorcery, :api_key).
-  config.api_key  = Rails.application.credentials.dig(:goodsorcery, :api_key)
-  # Default: ENV["GOODSORCERY_ENDPOINT"] || "https://app.goodsorcery.com"
-  config.endpoint = "https://errors.example.com"
+  # The generator's initializer sets it from the environment variable.
+  config.api_key = ENV["GOODSORCERY_API_KEY"].presence
+  # Default: ENV["GOODSORCERY_ENDPOINT"] || "https://app.goodsorcery.com" (the
+  # hosted service). Set only for a self-hosted server.
+  # config.endpoint = "https://errors.example.com"
 
   # Environments. Default environment: ENV["GOODSORCERY_ENV"] || Rails.env || RACK_ENV || APP_ENV || "development".
   config.environment = Rails.env
@@ -86,6 +88,10 @@ end
 
 `api_key` is the per-environment ingest key (`gs_live_…`/`gs_test_…`), sent as `Authorization: Bearer <key>`. It is never logged in full: logs and the install check show a masked form (`gs_test_…e81a`). A missing key disables delivery and logs one warning (only in an enabled environment).
 
+`endpoint` must be an `http://` or `https://` URL with a host and no `user:password@` part. `config.endpoint=` raises `ArgumentError` otherwise (without echoing the value). `GOODSORCERY_ENDPOINT` is checked by the same rule when it is read: an invalid value disables delivery and performance monitoring with one warning, and `verify`/`goodsorcery:test` return that reason instead of raising. The gem never falls back to the hosted default with the key, and `Transport` refuses any other URL as a last line of defence, so the key is never sent over another scheme. Plain `http://` logs a warning unless the host is `localhost`, `127.0.0.1` or `::1`. TLS peer verification is always on; private CAs are trusted through OpenSSL's `SSL_CERT_FILE`/`SSL_CERT_DIR`.
+
+The gem's only runtime dependency is `logger` (a bundled gem since Ruby 4.0, so it must be declared to load under Bundler without Rails).
+
 ### 3.2 Environment gating
 
 `GoodSorcery.enabled?` is true when, in order:
@@ -112,7 +118,7 @@ DEFAULT_FILTER_PARAMS = [
 ].freeze
 ```
 
-Filtering applies to keys at any depth in: `request.params`, `request.headers`, `request.session`, the query string of `request.url`, `context`, `breadcrumbs[].data`, `tags` and anything passed to `notify(context:)`. It does **not** apply to the `user` object (its `id`, `email`, `username` and `name` exist to identify affected users; don't set the ones you don't want sent). Values are always masked as `"[FILTERED]"`; keys are kept so you can see what was filtered. In Rails apps, `Rails.application.config.filter_parameters` is applied as well via `ActiveSupport::ParameterFilter` (with Rails' own matching rules), unless `use_rails_filter_parameters = false`.
+Filtering applies to keys at any depth in: `request.params`, `request.headers`, `request.session`, the query string of `request.url` and of header values (such as `Referer` and `Origin`, which carry whole URLs), `context`, `breadcrumbs[].data`, `tags` and anything passed to `notify(context:)`. It does **not** apply to the `user` object (its `id`, `email`, `username` and `name` exist to identify affected users; don't set the ones you don't want sent). Values are always masked as `"[FILTERED]"`; keys are kept so you can see what was filtered. In Rails apps, `Rails.application.config.filter_parameters` is applied as well via `ActiveSupport::ParameterFilter` (with Rails' own matching rules), unless `use_rails_filter_parameters = false`.
 
 ## 4. Install check on `bundle install` (development)
 
@@ -190,7 +196,7 @@ GoodSorcery.test_events / GoodSorcery.clear_test_events        # with delivery :
 
 `notify` never raises (internal errors are logged and swallowed) and does the minimum work in the caller: build, filter, `before_send`, enqueue.
 
-## 7. Server changes (goodsorcery_web)
+## 7. Server features the gem relies on (goodsorcery_web)
 
 - `POST /api/v1/events/batch`: body `{"events":[…]}` with 1–100 events; body ≤ 2 MiB (compressed and decompressed); each event is validated exactly like the single endpoint and must re-serialise to ≤ 512 KiB. Same auth, gzip, quota, media-type rules. Per-key and per-account rate limits count **events** (a batch of N consumes N; the single endpoint consumes 1, sharing counters); over the limit the whole batch gets `429` + `Retry-After`. Accepted events are stored as encrypted `InboundEvent`s in one transaction and enqueued with one bulk enqueue (`ActiveJob.perform_all_later`). Response `202 {"accepted":[{"index":0,"id":"…"}],"rejected":[{"index":3,"error":"invalid_payload","messages":["…"]}]}`; if nothing was accepted, the same body with `422`.
 - `GET /api/v1/verify`: authenticates the key (same rate limiting by IP and key) and returns `200 {"ok":true,"environment":"staging"}` without creating anything. Used by the install check.
@@ -199,7 +205,7 @@ GoodSorcery.test_events / GoodSorcery.clear_test_events        # with delivery :
 
 ## 8. Performance monitoring
 
-Approved 2026-11-04. A simple APM for Rails apps: **metrics** for every web request and background job, and **traces** (timelines) of a few slow requests. No logs, no distributed tracing, no custom instrumentation API. The wire format is `goodsorcery_web/docs/INGEST_API.md` › Performance monitoring; the server side is `goodsorcery_web/docs/ARCHITECTURE.md` §13. Like error reporting, it **never raises into the host app**, keeps memory bounded and is fork-safe.
+A simple APM for Rails apps: **metrics** for every web request and background job, and **traces** (timelines) of a few slow requests. No logs, no distributed tracing, no custom instrumentation API. The wire format is in the server's [INGEST_API.md](https://github.com/creativesorcery/goodsorcery_web/blob/main/docs/INGEST_API.md) › Performance monitoring; the server side is described in its [ARCHITECTURE.md](https://github.com/creativesorcery/goodsorcery_web/blob/main/docs/ARCHITECTURE.md) §13. Like error reporting, it **never raises into the host app**, keeps memory bounded and is fork-safe.
 
 ### 8.1 Configuration
 
@@ -219,7 +225,7 @@ end
 | `performance_traces` | `true` | Also records timelines and sends the slowest per transaction per minute. `false` sends metrics only. |
 | `performance_ignore_transactions` | `["Rails::HealthController#show"]` | Names (exact strings) or regexps never recorded, neither metrics nor traces. |
 
-Performance monitoring obeys the same gate as errors (`GoodSorcery.enabled?`, §3.2) and needs an API key: in a disabled environment nothing is subscribed, no thread starts and the per-request cost is one boolean check. `send_code_context` (§3) also governs the code lines sent with N+1 call sites. The `:test` delivery keeps payloads in memory instead of sending them (8.7). The generator's initializer template gains the two commented lines above, and goodsorcery_web's setup page shows the same snippet.
+Performance monitoring obeys the same gate as errors (`GoodSorcery.enabled?`, §3.2) and needs an API key: in a disabled environment nothing is subscribed, no thread starts and the per-request cost is one boolean check. `send_code_context` (§3) also governs the code lines sent with N+1 call sites. The `:test` delivery keeps payloads in memory instead of sending them (8.7). The generator's initializer template has the two commented lines above, and the server's Setup page shows the same snippet.
 
 ### 8.2 What is measured
 
@@ -329,9 +335,9 @@ A benchmark task (`bin/rake bench:performance`, not run in CI) measures a dummy 
 
 ### 8.10 Files and tests
 
-Files: `lib/goodsorcery/performance.rb` (module API: `install`, `recording?`, `suppressed?`, `start`, `finish`, `flush_performance`, test payloads) and `lib/goodsorcery/performance/{histogram,recorder,aggregator,transaction_stats,trace_buffer,trace_builder,sql_normalizer,call_site,subscribers,net_http,flusher,payloads,process_label,uuid_v7}.rb`; changes to `configuration.rb`, `client.rb` (error event id, shutdown), `transport.rb` (`post_apm`, suppression), `rack/middleware.rb`, `integrations/active_job.rb`, `integrations/sidekiq.rb`, `integrations/rails.rb`, the generator template, `README.md` (a "Performance monitoring" section) and `CHANGELOG.md`; the version goes to 0.2.0 at release.
+Code: `lib/goodsorcery/performance.rb` (module API: `install`, `recording?`, `suppressed?`, `start`, `finish`, `flush_performance`, test payloads) and `lib/goodsorcery/performance/{histogram,recorder,aggregator,transaction_stats,trace_buffer,trace_builder,sql_normalizer,call_site,subscribers,net_http,flusher,payloads,process_label,uuid_v7}.rb`; changes to `configuration.rb`, `client.rb` (error event id, shutdown), `transport.rb` (`post_apm`, suppression), `rack/middleware.rb`, `integrations/active_job.rb`, `integrations/sidekiq.rb`, `integrations/rails.rb` and the generator template hook it in. It shipped in 0.2.0.
 
-Required tests (Minitest, no network: the fake server and fake transport in `test/support`):
+What the tests cover (Minitest, no network: the fake server and fake transport in `test/support`):
 - Histogram: the literal `BOUNDS_MS` (the same list as goodsorcery_web) and `index` at 0, 0.999, 1, 47,999, 48,000 and 10⁶.
 - Off by default: nothing subscribed, no thread, `Net::HTTP` not prepended; disabled environments and a missing key record nothing.
 - Rails dummy app: a request records name, method, route pattern, status, db and view time (a query run from a template is database time only); a raised request counts as failed with status 500 and carries `error_event_id`, while an exception Rails answers with a 4xx (`RecordNotFound`, `ParameterMissing`, …) keeps that status and is not failed; ignored transactions and routing 404s are not recorded; Ruby time is floored at 0.

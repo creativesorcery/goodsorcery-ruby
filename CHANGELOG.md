@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Fix: the gem now declares its `logger` dependency. Since Ruby 4.0, `logger` is a bundled gem rather than a default gem, so apps without Rails (Rack, Sinatra, scripts, AWS Lambda) failed at `require "goodsorcery"` with `cannot load such file -- logger`. CI now also loads and tests the gem with only its runtime dependencies.
+- Security: the `:async` queue is bounded by bytes as well as by count. Events are serialized in the calling thread before they are queued, so an event over the server's 512 KiB limit is dropped straight away, and the queue holds at most 16 MiB of JSON. Past either limit the newest event is dropped and counted, with one warning a minute. Before, a queue full of large unserialized events could use gigabytes of memory while the server answered `429`.
+- Security: query strings inside header values, such as `Referer` and `Origin`, are filtered with the same rules as the request URL (`filter_params`, Rails' `filter_parameters` and `extra_filters`). A Referer could carry the previous page's password-reset or invitation token.
+- Security: `GOODSORCERY_ENDPOINT` must pass the same check as `config.endpoint=` (an `http://` or `https://` URL with a host and no credentials). An invalid value turns delivery and performance monitoring off with one warning, instead of sending the API key in plaintext over another scheme. `GoodSorcery.verify`, `goodsorcery:verify` and `goodsorcery:test` report the problem instead of raising `NoMethodError`. The plain-HTTP warning now also recognises `http://[::1]` as local.
+- The install generator's initializer sets `config.api_key = ENV["GOODSORCERY_API_KEY"].presence` (Rails credentials are still read when it is unset). `--api-key` remains optional, and the docs recommend the environment variable or `bin/rails credentials:edit`, because a key typed on the command line stays in the shell history.
+- The gemspec falls back to the files on disk when it is built outside a git checkout (for example from a GitHub archive), instead of building an empty gem.
+- Docs: the README starts with the hosted service (app.goodsorcery.com, where the API key comes from the project's Setup page) and has a separate Self-hosted section showing `GOODSORCERY_ENDPOINT`, `config.endpoint` and how to trust a private CA. Added SECURITY.md and CONTRIBUTING.md. DESIGN.md links to the server repository on GitHub.
+
 ## 0.3.1 (2026-11-08)
 
 - Performance traces also send the app-code layer as `app_ms` (the server's language-neutral protocol, revision 1.1), next to `ruby_ms`, which older servers read. Nothing else changes: runtimes still go out as `{ "ruby", "rails" }`, which every server version reads.
@@ -8,8 +18,13 @@
 
 ## 0.3.0 (2026-11-07)
 
-- The `:active_job` delivery: `GoodSorcery::DeliveryJob`, `config.active_job_queue` and `GoodSorcery::RetryableDeliveryError`. Use `:async` (the default). Errors raised in your own jobs are still reported, and jobs are still measured by performance monitoring.
-- Custom delivery objects (`config.delivery = <object responding to #deliver>`).
+### Removed (breaking)
+
+- Removed the `:active_job` delivery, along with `GoodSorcery::DeliveryJob`, `config.active_job_queue` and `GoodSorcery::RetryableDeliveryError`. Use `:async` (the default). Errors raised in your own jobs are still reported, and jobs are still measured by performance monitoring.
+- Removed custom delivery objects (`config.delivery = <object responding to #deliver>`).
+
+### Changed
+
 - `config.delivery` now accepts only `:async`, `:sync` and `:test`; anything else, including `:active_job` or an object, raises `ArgumentError` from `GoodSorcery.configure` with a message saying what to use instead. Setting `config.active_job_queue` raises `NoMethodError`.
 
 ## 0.2.0 (2026-11-07)
