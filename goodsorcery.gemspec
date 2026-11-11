@@ -21,9 +21,19 @@ Gem::Specification.new do |spec|
   spec.metadata["changelog_uri"] = "https://github.com/creativesorcery/goodsorcery-ruby/blob/main/CHANGELOG.md"
   spec.metadata["bug_tracker_uri"] = "https://github.com/creativesorcery/goodsorcery-ruby/issues"
 
+  spec.metadata["documentation_uri"] = "https://github.com/creativesorcery/goodsorcery-ruby#readme"
+
+  # The files git tracks. Outside a git checkout (a tarball or a GitHub
+  # archive) the same files are taken from disk, so the gem is never empty.
+  packaged = %w[plugins.rb README.md CHANGELOG.md LICENSE]
   tracked = `git -C #{__dir__} ls-files -z 2>/dev/null`.split("\x0")
-  spec.files = tracked.select do |path|
-    path.start_with?("lib/") || %w[plugins.rb README.md CHANGELOG.md LICENSE].include?(path)
+  if tracked.empty?
+    tracked = Dir.glob("lib/**/*", base: __dir__).select { |path| File.file?(File.join(__dir__, path)) } + packaged
   end
+  spec.files = tracked.select { |path| path.start_with?("lib/") || packaged.include?(path) }
   spec.require_paths = ["lib"]
+
+  # logger is a bundled gem, not a default gem, since Ruby 4.0: under Bundler
+  # it only loads when something in the bundle depends on it.
+  spec.add_dependency "logger", ">= 1.5"
 end

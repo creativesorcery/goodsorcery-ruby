@@ -52,3 +52,28 @@ jobs:
       - run: bundle exec rake test:integrations
       - run: bundle exec rake test:rails
       - run: gem build goodsorcery.gemspec
+
+  # Plain Ruby apps (Rack, Sinatra, scripts, Lambda) get only the gemspec's
+  # dependencies. Rails, Sidekiq and friends sit in the Gemfile's
+  # development group and pull in gems (such as logger) the gem itself
+  # needs, so the main job would not notice a missing dependency.
+  without-rails:
+    name: test without Rails (Ruby ${{ matrix.ruby }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby: ["3.2", ruby]
+    env:
+      BUNDLE_WITHOUT: development
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@7f797815d8adceb1c412e7abefdd1ab4abc47a5f # v1.335.0
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+      - name: Load the gem with only its runtime dependencies
+        run: bundle exec ruby -e 'require "goodsorcery"; abort "Rails loaded" if defined?(Rails); puts GoodSorcery::VERSION'
+      - run: bundle exec rake test:core
