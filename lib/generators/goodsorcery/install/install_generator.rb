@@ -7,23 +7,28 @@ module GoodSorcery
   module Generators
     # bin/rails generate goodsorcery:install [--api-key=KEY]
     #
-    # Writes config/initializers/goodsorcery.rb and stores the API key in the
-    # encrypted credentials when one is given and they can be decrypted. Never
+    # Writes config/initializers/goodsorcery.rb, which reads the key from
+    # GOODSORCERY_API_KEY (then Rails credentials). --api-key is optional: it
+    # stores the key in the encrypted credentials when they can be decrypted,
+    # but leaves it in the shell history, so the hint recommends the
+    # environment variable or `bin/rails credentials:edit` instead. Never
     # prints the key. The Bundler plugin stays opt-in (README, Install check).
     class InstallGenerator < ::Rails::Generators::Base
       namespace "goodsorcery:install"
       source_root File.expand_path("templates", __dir__)
       desc "Set up Good Sorcery error reporting"
 
-      class_option :api_key, type: :string, desc: "Ingest API key to store in Rails credentials"
+      class_option :api_key, type: :string, required: false,
+                             desc: "Optional ingest API key to store in Rails credentials " \
+                                   "(prefer GOODSORCERY_API_KEY: arguments end up in shell history)"
 
       KEY_HINT = <<~TEXT
-        Add your API key with `bin/rails credentials:edit`:
+        Set the GOODSORCERY_API_KEY environment variable to your project's API key
+        (Setup page at https://app.goodsorcery.com, or your own server), or add it
+        with `bin/rails credentials:edit`:
 
           goodsorcery:
             api_key: <your gs_live_... or gs_test_... key>
-
-        or set the GOODSORCERY_API_KEY environment variable.
       TEXT
       NEXT_STEPS = <<~TEXT
         Check the key and endpoint with `bin/rails goodsorcery:verify` (sends nothing),

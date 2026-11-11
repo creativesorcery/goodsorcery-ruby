@@ -1,13 +1,16 @@
 # frozen_string_literal: true
 
-# Good Sorcery error reporting. Every setting is optional; the defaults are
-# shown. See https://app.goodsorcery.com and the goodsorcery README.
+# Good Sorcery error reporting. Every other setting is optional; the defaults
+# are shown. Get an API key from your project's Setup page at
+# https://app.goodsorcery.com. Docs: https://github.com/creativesorcery/goodsorcery-ruby
 GoodSorcery.configure do |config|
   # --- Credentials -----------------------------------------------------------
-  # Looked up in ENV["GOODSORCERY_API_KEY"], then in Rails credentials
-  # (goodsorcery.api_key). Use one key per environment. Never commit it.
-  # config.api_key = Rails.application.credentials.dig(:goodsorcery, :api_key)
-  # config.endpoint = "https://app.goodsorcery.com"   # or ENV["GOODSORCERY_ENDPOINT"]
+  # Set GOODSORCERY_API_KEY in each environment. When it is unset, the key is
+  # read from Rails credentials (goodsorcery.api_key). Use one key per
+  # environment and never commit it.
+  config.api_key = ENV["GOODSORCERY_API_KEY"].presence
+  # Self-hosted server only; events go to https://app.goodsorcery.com by default.
+  # config.endpoint = "https://errors.example.com"     # or ENV["GOODSORCERY_ENDPOINT"]
 
   # --- Environments ----------------------------------------------------------
   # config.environment = Rails.env                       # or ENV["GOODSORCERY_ENV"]

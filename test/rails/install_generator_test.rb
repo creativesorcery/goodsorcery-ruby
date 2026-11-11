@@ -39,9 +39,25 @@ class InstallGeneratorTest < Rails::Generators::TestCase
 
     assert_file "config/initializers/goodsorcery.rb", /GoodSorcery\.configure do \|config\|/
     assert_file "config/initializers/goodsorcery.rb", /# config\.send_job_arguments = true/
+    assert_file "config/initializers/goodsorcery.rb", /^  config\.api_key = ENV\["GOODSORCERY_API_KEY"\]\.presence$/
     assert_file("Gemfile") { |gemfile| refute_match(/^plugin /, gemfile) }
     assert_includes output, "GOODSORCERY_API_KEY"
     assert_includes output, "bin/rails goodsorcery:verify"
+  end
+
+  def test_the_initializer_reads_the_key_from_the_environment_then_credentials
+    run_generator
+    initializer = File.join(destination_root, "config/initializers/goodsorcery.rb")
+
+    with_env("GOODSORCERY_API_KEY" => API_KEY) { load initializer }
+    assert_equal API_KEY, GoodSorcery.configuration.api_key
+
+    store = credentials
+    store.write("goodsorcery:\n  api_key: gs_live_fromcredentials\n")
+    with_credentials(store) do
+      load initializer
+      assert_equal "gs_live_fromcredentials", GoodSorcery.configuration.api_key
+    end
   end
 
   def test_stores_the_api_key_in_credentials_without_printing_it
