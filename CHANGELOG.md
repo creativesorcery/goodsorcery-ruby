@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.2 (2026-11-10)
 
 - Fix: the gem now declares its `logger` dependency. Since Ruby 4.0, `logger` is a bundled gem rather than a default gem, so apps without Rails (Rack, Sinatra, scripts, AWS Lambda) failed at `require "goodsorcery"` with `cannot load such file -- logger`. CI now also loads and tests the gem with only its runtime dependencies.
 - Security: the `:async` queue is bounded by bytes as well as by count. Events are serialized in the calling thread before they are queued, so an event over the server's 512 KiB limit is dropped straight away, and the queue holds at most 16 MiB of JSON. Past either limit the newest event is dropped and counted, with one warning a minute. Before, a queue full of large unserialized events could use gigabytes of memory while the server answered `429`.
